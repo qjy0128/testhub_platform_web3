@@ -1,0 +1,1052 @@
+{
+  "base_frontend_url": "http://127.0.0.1:3000",
+  "base_backend_url": "http://127.0.0.1:8000",
+  "browser_path": "C:\\Users\\qjy01\\AppData\\Local\\Google\\Chrome\\Application\\chrome.exe",
+  "routes": [
+    {
+      "slug": "login",
+      "title": "登录页",
+      "path": "/login",
+      "url": "http://127.0.0.1:3000/login",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\login.png",
+      "headings": [
+        "TestHub",
+        "AI用例生成",
+        "AI智能测试",
+        "多类型测试",
+        "数据分析",
+        "欢迎回来"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "登录"
+      ],
+      "body_preview": "TestHub\n\nAI-Powered Testing Platform\n\nAI用例生成\n\n基于自然语言自动生成测试用例\n\nAI智能测试\n\n智能分析需求，自动化执行测试\n\n多类型测试\n\n支持接口、UI自动化测试\n\n数据分析\n\n实时监控测试覆盖率与质量指标\n\nAI用例生成\nAI智能测试\n自动化执行\n定时任务\n🇨🇳\n简体中文\n欢迎回来\n\n登录以继续使用一站式智能化测试平台\n\n登录\n还没有账号？立即注册\n\n© 2024 TestHub. All rights reserved.",
+      "status": "ok"
+    },
+    {
+      "slug": "home",
+      "title": "首页总览",
+      "path": "/home",
+      "url": "http://127.0.0.1:3000/home",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\home.png",
+      "headings": [
+        "TestHub 测试平台",
+        "AI用例生成",
+        "接口测试",
+        "UI自动化测试",
+        "数据工厂",
+        "APP自动化测试"
+      ],
+      "buttons": [
+        "🇨🇳\n中文",
+        "admin",
+        "AI用例生成\n\n智能分析需求，自动生成测试用例",
+        "接口测试\n\n高效的接口自动化测试与管理",
+        "UI自动化测试\n\n可视化的Web/App UI自动化测试",
+        "数据工厂\n\n灵活的测试数据构造与管理",
+        "APP自动化测试\n\n基于Airtest的Android APP自动化测试",
+        "AI 智能模式\n\n基于自然语言的智能化测试执行",
+        "AI评测师\n\n基于评测师知识库，提供专业软件测试问答",
+        "配置中心\n\n系统环境、AI模型及通知配置"
+      ],
+      "body_preview": "🇨🇳\n中文\nadmin\nTestHub 测试平台\n\n一站式智能化测试解决方案\n\nAI用例生成\n\n智能分析需求，自动生成测试用例\n\n接口测试\n\n高效的接口自动化测试与管理\n\nUI自动化测试\n\n可视化的Web/App UI自动化测试\n\n数据工厂\n\n灵活的测试数据构造与管理\n\nAPP自动化测试\n\n基于Airtest的Android APP自动化测试\n\nAI 智能模式\n\n基于自然语言的智能化测试执行\n\nAI评测师\n\n基于评测师知识库，提供专业软件测试问答\n\n配置中心\n\n系统环境、AI模型及通知配置",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_requirement_analysis",
+      "title": "AI需求分析",
+      "path": "/ai-generation/requirement-analysis",
+      "url": "http://127.0.0.1:3000/ai-generation/requirement-analysis",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_requirement_analysis.png",
+      "headings": [
+        "智能测试用例生成",
+        "开始使用AI用例生成功能",
+        "📤 输出模式设置",
+        "✍️ 手动输入需求描述",
+        "📄 上传需求文档"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "去配置",
+        "🚀 生成测试用例",
+        "选择文件"
+      ],
+      "body_preview": "智能用例生成\nAI用例生成\nAI生成用例记录\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\nAI用例生成\n🇨🇳\n简体中文\nadmin\n智能测试用例生成\n\n基于需求描述或文档，AI将直接为您生成高质量的测试用例\n\n开始使用AI用例生成功能\n\n在使用前，请先完成以下配置：\n\n模型配置\n✗\n用例编写\n未配置\n✗\n用例评审\n未配置\n提示词配置\n✗\n用例编写\n未配置\n✗\n用例评审\n未配置\n生成行为配置\n✗\n生成配置\n未配置\n去配置\n稍后配置\n📤 输出模式设置\n\n选择测试用例生成的输出方式（适用于手动输入和文档上传两种方式）\n\n⚡ 实时流式输出\n内容逐字显示，体验流畅，适合大需求文档\n📄 完整输出\n完成后一次性展示，适合简单需求\n✍️ 手动输入需求描述\n需求标题 *\n需求描述 *\n0/2000\n关联项目（可选）\n请选择项目\n🚀 生成测试用例\n或\n📄 上传需求文档\n📁\n\n拖拽文件到此处或点击选择文件\n\n支持 PDF、Word、TXT、Markdown 格式\n\n选择文件",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_generated_testcases",
+      "title": "AI生成测试用例",
+      "path": "/ai-generation/generated-testcases",
+      "url": "http://127.0.0.1:3000/ai-generation/generated-testcases",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_generated_testcases.png",
+      "headings": [
+        "AI生成用例记录",
+        "暂无生成任务"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "🔄 刷新"
+      ],
+      "body_preview": "智能用例生成\nAI用例生成\nAI生成用例记录\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\nAI生成用例记录\n🇨🇳\n简体中文\nadmin\nAI生成用例记录\n状态筛选:\n全部状态\n需求分析中\n用例编写中\n用例评审中\n已完成\n失败\n🔄 刷新\n📝\n暂无生成任务\n\n还没有AI生成用例任务，去AI用例生成页面创建一个任务吧！",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_projects",
+      "title": "项目管理",
+      "path": "/ai-generation/projects",
+      "url": "http://127.0.0.1:3000/ai-generation/projects",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_projects.png",
+      "headings": [
+        "项目管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建项目",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n项目管理\n🇨🇳\n简体中文\nadmin\n项目管理\n新建项目\n状态筛选\n项目名称\n\t\n描述\n\t\n状态\n\t\n负责人\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n1",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_testcases",
+      "title": "测试用例管理",
+      "path": "/ai-generation/testcases",
+      "url": "http://127.0.0.1:3000/ai-generation/testcases",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_testcases.png",
+      "headings": [
+        "测试用例"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "导出Excel",
+        "新建用例",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n测试用例\n🇨🇳\n简体中文\nadmin\n测试用例\n导出Excel\n新建用例\n关联项目\n优先级筛选\n\t\n序号\n\t\n用例标题\n\t\n关联项目\n\t\n关联版本\n\t\n优先级\n\t\n测试类型\n\t\n作者\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n15条/页\n1",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_versions",
+      "title": "版本管理",
+      "path": "/ai-generation/versions",
+      "url": "http://127.0.0.1:3000/ai-generation/versions",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_versions.png",
+      "headings": [
+        "版本管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建版本",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n版本管理\n🇨🇳\n简体中文\nadmin\n版本管理\n新建版本\n关联项目\n版本类型\n\t\n序号\n\t\n版本名称\n\t\n关联项目\n\t\n描述\n\t\n用例数量\n\t\n创建者\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n1",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_reviews",
+      "title": "用例评审列表",
+      "path": "/ai-generation/reviews",
+      "url": "http://127.0.0.1:3000/ai-generation/reviews",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_reviews.png",
+      "headings": [
+        "用例评审"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建评审",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n评审列表\n评审模板\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n评审列表\n🇨🇳\n简体中文\nadmin\n用例评审\n新建评审\n项目\n请选择项目\n评审状态\n请选择状态\n评审人\n请选择评审人\n评审标题\n\t\n项目\n\t\n评审状态\n\t\n优先级\n\t\n创建人\n\t\n用例数量\n\t\n评审进度\n\t\n截止时间\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_review_templates",
+      "title": "评审模板",
+      "path": "/ai-generation/review-templates",
+      "url": "http://127.0.0.1:3000/ai-generation/review-templates",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_review_templates.png",
+      "headings": [
+        "评审模板"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "创建模板"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n评审列表\n评审模板\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n评审模板\n🇨🇳\n简体中文\nadmin\n评审模板\n创建模板\n项目\n请选择项目\n\n暂无评审模板",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_executions",
+      "title": "测试计划与执行",
+      "path": "/ai-generation/executions",
+      "url": "http://127.0.0.1:3000/ai-generation/executions",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_executions.png",
+      "headings": [
+        "测试计划"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建测试计划",
+        "搜索",
+        "重置",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n执行记录\n🇨🇳\n简体中文\nadmin\n测试计划\n新建测试计划\n项目\n选择项目\n状态\n选择状态\n搜索\n重置\n\t\n序号\n\t\n计划名称\n\t\n项目\n\t\n版本\n\t\n创建者\n\t\n状态\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_reports",
+      "title": "AI测试报告",
+      "path": "/ai-generation/reports",
+      "url": "http://127.0.0.1:3000/ai-generation/reports",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_reports.png",
+      "headings": [
+        "执行状态分布",
+        "每日执行趋势",
+        "失败用例优先级分布（缺陷分布）",
+        "失败用例 TOP 10",
+        "AI生成效能分析",
+        "团队工作量统计"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "导出报告"
+      ],
+      "body_preview": "智能用例生成\n项目管理\n测试用例\n版本管理\n评审管理\n测试计划\n测试报告\n首页\n/\nAI用例生成\n/\n测试报告\n🇨🇳\n简体中文\nadmin\n选择项目\n最近7天\n导出报告\n0\n活跃计划\n0% 进度\n0\n用例总数\n0%\n通过率\n0\n发现缺陷\n执行状态分布\n每日执行趋势\n失败用例优先级分布（缺陷分布）\n失败用例 TOP 10\n用例标题\n\t\n失败次数\n暂无数据\nAI生成效能分析\n0%\n生成采纳率\n0%\n需求覆盖率\n0h\n节省工时估算\n团队工作量统计",
+      "status": "ok"
+    },
+    {
+      "slug": "api_dashboard",
+      "title": "API测试仪表盘",
+      "path": "/api-testing/dashboard",
+      "url": "http://127.0.0.1:3000/api-testing/dashboard",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_dashboard.png",
+      "headings": [
+        "核心功能",
+        "接口管理",
+        "自动化测试",
+        "定时任务",
+        "多维报告"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n数据看板\n🇨🇳\n简体中文\nadmin\n0\n接口项目\n0\n接口数量\n0\n测试套件\n0\n执行记录\n\n暂无操作记录\n\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n核心功能\n接口管理\n\n支持HTTP/HTTPS协议，快速导入Swagger/Postman数据，实现接口统一管理。\n\n自动化测试\n\n可视化的测试流程编排，支持断言、提取变量、前置/后置脚本等高级功能。\n\n定时任务\n\n灵活的定时任务配置，支持Crontab表达式，实现无人值守的自动化回归测试。\n\n多维报告\n\n生成详细的测试报告，包含成功率、响应时间趋势等多维度数据分析。",
+      "status": "ok"
+    },
+    {
+      "slug": "api_projects",
+      "title": "API项目管理",
+      "path": "/api-testing/projects",
+      "url": "http://127.0.0.1:3000/api-testing/projects",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_projects.png",
+      "headings": [
+        "项目管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建项目",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n项目管理\n🇨🇳\n简体中文\nadmin\n项目管理\n新建项目\n项目名称\n\t\n项目类型\n\t\n项目状态\n\t\n负责人\n\t\n开始日期\n\t\n结束日期\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "api_interfaces",
+      "title": "接口管理",
+      "path": "/api-testing/interfaces",
+      "url": "http://127.0.0.1:3000/api-testing/interfaces",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_interfaces.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "创建新接口"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n接口管理\n🇨🇳\n简体中文\nadmin\n选择项目\n暂无数据\n\n请选择一个接口查看详情，或点击上方绿色按钮创建新接口\n\n创建新接口",
+      "status": "ok"
+    },
+    {
+      "slug": "api_automation",
+      "title": "API自动化测试",
+      "path": "/api-testing/automation",
+      "url": "http://127.0.0.1:3000/api-testing/automation",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_automation.png",
+      "headings": [
+        "自动化测试"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建测试套件"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n自动化测试\n🇨🇳\n简体中文\nadmin\n自动化测试\n新建测试套件\n选择项目\n测试套件\n\n请选择一个测试套件查看详情",
+      "status": "ok"
+    },
+    {
+      "slug": "api_history",
+      "title": "请求历史",
+      "path": "/api-testing/history",
+      "url": "http://127.0.0.1:3000/api-testing/history",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_history.png",
+      "headings": [
+        "请求历史"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "批量删除",
+        "清空历史",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n请求历史\n🇨🇳\n简体中文\nadmin\n请求历史\n批量删除\n清空历史\nHTTP请求\nWebSocket请求\n\t\n请求名称\n\t\n方法\n\t\nURL\n\t\n状态码\n\t\n响应时间\n\t\n环境\n\t\n执行者\n\t\n执行时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "api_environments",
+      "title": "环境管理",
+      "path": "/api-testing/environments",
+      "url": "http://127.0.0.1:3000/api-testing/environments",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_environments.png",
+      "headings": [
+        "环境管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建环境"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n环境管理\n🇨🇳\n简体中文\nadmin\n环境管理\n新建环境\n全局环境变量\n局部环境变量\n环境名称\n\t\n作用域\n\t\n变量数量\n\t\n状态\n\t\n创建者\n\t\n创建时间\n\t\n操作\n暂无数据",
+      "status": "ok"
+    },
+    {
+      "slug": "api_reports",
+      "title": "API测试报告",
+      "path": "/api-testing/reports",
+      "url": "http://127.0.0.1:3000/api-testing/reports",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_reports.png",
+      "headings": [
+        "测试报告"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新报告",
+        "查看Allure报告说明"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n测试报告\n🇨🇳\n简体中文\nadmin\n测试报告\n刷新报告\n查看Allure报告说明\nID\n\t\n测试套件\n\t\n状态\n\t\n总请求数\n\t\n通过数\n\t\n失败数\n\t\n执行者\n\t\n执行时间\n\t\n操作\n暂无数据",
+      "status": "ok"
+    },
+    {
+      "slug": "api_scheduled_tasks",
+      "title": "API定时任务",
+      "path": "/api-testing/scheduled-tasks",
+      "url": "http://127.0.0.1:3000/api-testing/scheduled-tasks",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_scheduled_tasks.png",
+      "headings": [
+        "定时任务管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建定时任务",
+        "重置",
+        "搜索",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n定时任务\n🇨🇳\n简体中文\nadmin\n定时任务管理\n新建定时任务\n任务类型\n触发器类型\n任务状态\n重置\n搜索\n任务名称\n\t\n任务类型\n\t\n触发器类型\n\t\n状态\n\t\n通知类型\n\t\n下次执行时间\n\t\n上次执行时间\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "api_notification_logs",
+      "title": "API通知日志",
+      "path": "/api-testing/notification-logs",
+      "url": "http://127.0.0.1:3000/api-testing/notification-logs",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\api_notification_logs.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "搜索",
+        "重置",
+        "按 任务名称 排序",
+        "按 通知时间 排序",
+        "按 状态 排序",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n接口管理\n自动化测试\n请求历史\n环境管理\n测试报告\n定时任务\n通知列表\n首页\n/\n接口测试\n/\n通知列表\n🇨🇳\n简体中文\nadmin\n至\n通知状态\n搜索\n重置\n任务名称\n\t\n任务类型\n\t\n通知类型\n\t\n通知对象\n\t\n通知时间\n\t\n状态\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_dashboard",
+      "title": "UI自动化仪表盘",
+      "path": "/ui-automation/dashboard",
+      "url": "http://127.0.0.1:3000/ui-automation/dashboard",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_dashboard.png",
+      "headings": [
+        "核心功能",
+        "元素定位",
+        "双引擎驱动",
+        "多浏览器运行",
+        "全平台通知",
+        "脚本录制"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n数据看板\n🇨🇳\n简体中文\nadmin\n0\nUI测试项目\n0\n测试用例\n0\n测试套件\n0\n测试执行\n\n暂无操作记录\n\n项目管理\n元素管理\n用例管理\n脚本生成\n运行测试\n执行记录\n测试报告\n核心功能\n元素定位\n\n支持多种定位策略，包括ID、CSS Selector、XPath等，精确捕捉页面元素。\n\n双引擎驱动\n\n支持Playwright+Selenium双引擎驱动\n\n多浏览器运行\n\n可自由选择Chrome、Safari、Edge、Firefox在内的多款浏览器，支持有头、无头模式运行。\n\n全平台通知\n\n自由配置邮件、飞书、企微、钉钉在内的多种机器人通知，实现「躺在家」就能接收测试结果\n\n脚本录制\n\n提供可视化脚本录制功能，快速生成测试脚本，降低编码门槛。\n\n自动执行\n\n支持手动触发和定时执行，可集成CI/CD流程，实现持续测试。",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_projects",
+      "title": "UI项目管理",
+      "path": "/ui-automation/projects",
+      "url": "http://127.0.0.1:3000/ui-automation/projects",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_projects.png",
+      "headings": [
+        "UI自动化项目"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建项目",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n项目管理\n🇨🇳\n简体中文\nadmin\nUI自动化项目\n新建项目\n状态筛选\n项目名称\n\t\n描述\n\t\n状态\n\t\n基础URL\n\t\n负责人\n\t\n创建时间\n\t\n更新时间\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_elements",
+      "title": "UI元素管理",
+      "path": "/ui-automation/elements-enhanced",
+      "url": "http://127.0.0.1:3000/ui-automation/elements-enhanced",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_elements.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "创建新元素"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n元素管理\n🇨🇳\n简体中文\nadmin\n选择项目\n暂无数据\n\n请选择一个元素查看详情，或点击上方绿色按钮创建新元素\n\n创建新元素",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_test_cases",
+      "title": "UI测试用例",
+      "path": "/ui-automation/test-cases",
+      "url": "http://127.0.0.1:3000/ui-automation/test-cases",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_test_cases.png",
+      "headings": [
+        "测试用例管理",
+        "测试用例列表"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建测试用例"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n用例管理\n🇨🇳\n简体中文\nadmin\n测试用例管理\nuiAutomation.project.selectProject\n新建测试用例\n测试用例列表\n\n请选择一个测试用例",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_scripts_enhanced",
+      "title": "UI脚本编排",
+      "path": "/ui-automation/scripts-enhanced",
+      "url": "http://127.0.0.1:3000/ui-automation/scripts-enhanced",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_scripts_enhanced.png",
+      "headings": [
+        "智能脚本生成",
+        "元素库"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "格式化",
+        "清空",
+        "保存脚本",
+        "清空日志"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n脚本生成\n🇨🇳\n简体中文\nadmin\n智能脚本生成\n选择项目\n元素库\n暂无数据\nPython\nPlaywright\n格式化\n清空\n保存脚本\n行: 1, 列: 1\n字符数: 0\n语言: python\n执行日志\n清空日志",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_scripts",
+      "title": "UI脚本列表",
+      "path": "/ui-automation/scripts",
+      "url": "http://127.0.0.1:3000/ui-automation/scripts",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_scripts.png",
+      "headings": [
+        "脚本列表"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建脚本",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n脚本列表\n🇨🇳\n简体中文\nadmin\n脚本列表\n选择项目\n新建脚本\n序号\n\t\n项目\n\t\n名称\n\t\n语言\n\t\n框架\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_suites",
+      "title": "UI测试套件",
+      "path": "/ui-automation/suites",
+      "url": "http://127.0.0.1:3000/ui-automation/suites",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_suites.png",
+      "headings": [
+        "测试套件管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新增套件",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n套件管理\n🇨🇳\n简体中文\nadmin\n测试套件管理\n选择项目\n新增套件\n\t\n套件名称\n\t\n描述\n\t\n包含用例数\n\t\n执行状态\n\t\n通过数\n\t\n失败数\n\t\n创建时间\n\t\n更新时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_executions",
+      "title": "UI执行记录",
+      "path": "/ui-automation/executions",
+      "url": "http://127.0.0.1:3000/ui-automation/executions",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_executions.png",
+      "headings": [
+        "测试执行记录"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "查询",
+        "重置",
+        "批量删除",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n执行记录\n🇨🇳\n简体中文\nadmin\n测试执行记录\n选择项目\n搜索\n状态\n执行状态\n浏览器\n浏览器\n查询\n重置\n批量删除\n\t\nID\n\t\n用例名称\n\t\n关联对象\n\t\n执行状态\n\t\n测试引擎\n\t\n执行模式\n\t\n浏览器\n\t\n执行人\n\t\n开始时间\n\t\n结束时间\n\t\n执行时长\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_reports",
+      "title": "UI测试报告",
+      "path": "/ui-automation/reports",
+      "url": "http://127.0.0.1:3000/ui-automation/reports",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_reports.png",
+      "headings": [
+        "测试报告"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新报告",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n测试报告\n🇨🇳\n简体中文\nadmin\n测试报告\n选择项目\n刷新报告\nID\n\t\n测试套件\n\t\n状态\n\t\n测试引擎\n\t\n浏览器\n\t\n总用例数\n\t\n通过数\n\t\n失败数\n\t\n通过率\n\t\n执行时长\n\t\n执行者\n\t\n执行时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_scheduled_tasks",
+      "title": "UI定时任务",
+      "path": "/ui-automation/scheduled-tasks",
+      "url": "http://127.0.0.1:3000/ui-automation/scheduled-tasks",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_scheduled_tasks.png",
+      "headings": [
+        "UI自动化定时任务"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建定时任务",
+        "重置",
+        "搜索",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n定时任务\n🇨🇳\n简体中文\nadmin\nUI自动化定时任务\n新建定时任务\n任务类型\n触发器类型\n状态\n重置\n搜索\n任务名称\n\t\n任务类型\n\t\n通知类型\n\t\n触发器类型\n\t\n状态\n\t\n执行引擎\n\t\n浏览器\n\t\n下次执行时间\n\t\n上次执行时间\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ui_notification_logs",
+      "title": "UI通知日志",
+      "path": "/ui-automation/notification-logs",
+      "url": "http://127.0.0.1:3000/ui-automation/notification-logs",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ui_notification_logs.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "搜索",
+        "重置",
+        "按 任务名称 排序",
+        "按 通知时间 排序",
+        "按 状态 排序",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "数据看板\n项目管理\n元素管理\n用例管理\n脚本生成\n脚本列表\n套件管理\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nUI自动化测试\n/\n通知列表\n🇨🇳\n简体中文\nadmin\n至\n通知状态\n搜索\n重置\n任务名称\n\t\n任务类型\n\t\n通知类型\n\t\n通知时间\n\t\n状态\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_mode_testing",
+      "title": "AI智能测试",
+      "path": "/ai-intelligent-mode/testing",
+      "url": "http://127.0.0.1:3000/ai-intelligent-mode/testing",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_mode_testing.png",
+      "headings": [
+        "AI 智能测试"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "开始执行",
+        "保存为用例"
+      ],
+      "body_preview": "AI 智能测试\nAI 用例管理\nAI测试报告\n首页\n/\nAI 智能模式\n/\nAI 智能测试\n🇨🇳\n简体中文\nadmin\nAI 智能测试\n任务输入\n任务描述\n0 / 2000\n钱包模式\n未启用\n已启用\nGIF录制\n关闭\n开启\n开启后将录制执行过程并生成GIF文件，保存到 ai_agent_history 目录\n开始执行\n保存为用例\n提示\n\nAI 模式使用\"配置中心-AI智能模式配置\"中的模型（如未添加模型，请前往添加）。\n支持中英文任务描述，任务描述越详细，执行效果越好。\n\n执行日志\n暂无执行日志\n任务明细\n暂无任务",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_mode_cases",
+      "title": "AI智能用例管理",
+      "path": "/ai-intelligent-mode/cases",
+      "url": "http://127.0.0.1:3000/ai-intelligent-mode/cases",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_mode_cases.png",
+      "headings": [
+        "AI 用例管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "AI 智能测试\nAI 用例管理\nAI测试报告\n首页\n/\nAI 智能模式\n/\nAI 用例管理\n🇨🇳\n简体中文\nadmin\nAI 用例管理\n用例名称\n\t\n描述\n\t\n任务描述\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "ai_mode_execution_records",
+      "title": "AI智能执行记录",
+      "path": "/ai-intelligent-mode/execution-records",
+      "url": "http://127.0.0.1:3000/ai-intelligent-mode/execution-records",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\ai_mode_execution_records.png",
+      "headings": [
+        "AI 测试报告"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "批量删除",
+        "查看详情",
+        "查看报告",
+        "查看详情",
+        "查看报告",
+        "查看详情",
+        "查看报告",
+        "查看详情",
+        "查看报告",
+        "查看详情"
+      ],
+      "body_preview": "AI 智能测试\nAI 用例管理\nAI测试报告\n首页\n/\nAI 智能模式\n/\nAI测试报告\n🇨🇳\n简体中文\nadmin\nAI 测试报告\n批量删除\n\t\n序号\n\t\n用例名称\n\t\n状态\n\t\n耗时(秒)\n\t\n开始时间\n\t\n执行人\n\t\n操作\n\t\n1\n\t\nAdhoc Task\n\t\n成功\n\t\n228.63\n\t\n2026/4/19 19:31:56\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n2\n\t\nAdhoc Task\n\t\n成功\n\t\n311.61\n\t\n2026/4/19 19:23:23\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n3\n\t\nAdhoc Task\n\t\n执行中\n\t\n-\n\t\n2026/4/19 19:16:25\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n4\n\t\nAdhoc Task\n\t\n成功\n\t\n275.11\n\t\n2026/4/19 19:09:32\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n5\n\t\nAdhoc Task\n\t\n执行中\n\t\n-\n\t\n2026/4/19 19:06:22\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n6\n\t\nAdhoc Task\n\t\n失败\n\t\n25.62\n\t\n2026/4/19 19:03:54\n\t\nadmin\n\t\n查看详情\n查看报告\n\n\n\t\n7\n\t\nAdhoc Task\n\t\n失败\n\t\n20.94\n\t\n2026/4/19 19:01:41",
+      "status": "ok"
+    },
+    {
+      "slug": "data_factory",
+      "title": "数据工厂",
+      "path": "/data-factory",
+      "url": "http://127.0.0.1:3000/data-factory",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\data_factory.png",
+      "headings": [
+        "数据工厂"
+      ],
+      "buttons": [
+        "按工具分类",
+        "按使用场景",
+        "使用历史"
+      ],
+      "body_preview": "数据工厂\n\n智能数据生成工具箱 - 为测试提供高质量测试数据\n\n按工具分类\n按使用场景\n使用历史",
+      "status": "ok"
+    },
+    {
+      "slug": "config_ai_model",
+      "title": "AI模型配置",
+      "path": "/configuration/ai-model",
+      "url": "http://127.0.0.1:3000/configuration/ai-model",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_ai_model.png",
+      "headings": [
+        "🤖 AI用例生成模型配置",
+        "模型配置列表",
+        "暂无AI模型配置",
+        "添加AI模型配置"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "添加配置",
+        "添加第一个配置"
+      ],
+      "body_preview": "AI用例生成配置\n用例模型配置\n提示词配置\n生成行为配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\n用例模型配置\n🇨🇳\n简体中文\nadmin\n🤖 AI用例生成模型配置\n\n配置用于测试用例生成和评审的AI模型\n\n模型配置列表\n添加配置\n暂无AI模型配置\n\n请添加您的AI模型配置以开始使用自动化测试用例生成功能\n\n添加第一个配置",
+      "status": "ok"
+    },
+    {
+      "slug": "config_prompt",
+      "title": "提示词配置",
+      "path": "/configuration/prompt-config",
+      "url": "http://127.0.0.1:3000/configuration/prompt-config",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_prompt.png",
+      "headings": [
+        "📝 提示词配置",
+        "提示词配置列表",
+        "暂无提示词配置"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "📂 加载默认提示词",
+        "➕ 添加配置",
+        "➕ 添加第一个配置",
+        "📂 加载默认提示词"
+      ],
+      "body_preview": "AI用例生成配置\n用例模型配置\n提示词配置\n生成行为配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\n提示词配置\n🇨🇳\n简体中文\nadmin\n📝 提示词配置\n\n配置用于测试用例编写和评审的AI提示词\n\n提示词配置列表\n📂 加载默认提示词\n➕ 添加配置\n📝\n暂无提示词配置\n\n请添加提示词配置以自定义AI的行为和输出格式\n\n➕ 添加第一个配置\n📂 加载默认提示词",
+      "status": "ok"
+    },
+    {
+      "slug": "config_generation",
+      "title": "生成策略配置",
+      "path": "/configuration/generation-config",
+      "url": "http://127.0.0.1:3000/configuration/generation-config",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_generation.png",
+      "headings": [
+        "⚙️ 生成行为配置",
+        "配置列表",
+        "暂无生成配置"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "➕ 添加配置",
+        "➕ 添加第一个配置"
+      ],
+      "body_preview": "AI用例生成配置\n用例模型配置\n提示词配置\n生成行为配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\n生成行为配置\n🇨🇳\n简体中文\nadmin\n⚙️ 生成行为配置\n\n配置测试用例生成的默认行为和自动化流程\n\n配置列表\n➕ 添加配置\n⚙️\n暂无生成配置\n\n请添加生成行为配置以控制测试用例生成的默认行为\n\n➕ 添加第一个配置",
+      "status": "ok"
+    },
+    {
+      "slug": "config_ui_env",
+      "title": "UI环境配置",
+      "path": "/configuration/ui-env",
+      "url": "http://127.0.0.1:3000/configuration/ui-env",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_ui_env.png",
+      "headings": [
+        "UI自动化环境配置",
+        "操作系统",
+        "系统浏览器 (Selenium支持)",
+        "Chrome",
+        "Firefox",
+        "Edge"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "检测环境"
+      ],
+      "body_preview": "AI用例生成配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\nUI环境配置\n🇨🇳\n简体中文\nadmin\nUI自动化环境配置\n\n检测和管理浏览器驱动环境\n\n检测环境\n上次检测时间: 2026/4/20 00:43:06\n操作系统\nWindows\n系统浏览器 (Selenium支持)\nChrome\n已安装\nFirefox\n未安装\nEdge\n已安装\nPlaywright 浏览器\nChromium\n1217\nFirefox\n未安装\nWebkit\n未安装",
+      "status": "ok"
+    },
+    {
+      "slug": "config_app_env",
+      "title": "APP环境配置",
+      "path": "/configuration/app-env",
+      "url": "http://127.0.0.1:3000/configuration/app-env",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_app_env.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "保存配置",
+        "重置"
+      ],
+      "body_preview": "AI用例生成配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\n🇨🇳\n简体中文\nadmin\nAPP 自动化配置\nADB 路径\nAndroid Debug Bridge 工具路径。如果 ADB 在系统 PATH 中，填写 \"adb\" 即可\n保存配置\n重置\n当前配置信息\nADB 路径\t\nadb\n\n更新时间\t2026/04/20 00:43:11\n创建时间\t2026/04/20 00:43:11",
+      "status": "ok"
+    },
+    {
+      "slug": "config_ai_mode",
+      "title": "AI智能模式配置",
+      "path": "/configuration/ai-mode",
+      "url": "http://127.0.0.1:3000/configuration/ai-mode",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_ai_mode.png",
+      "headings": [],
+      "buttons": [],
+      "body_preview": "",
+      "status": "ok"
+    },
+    {
+      "slug": "config_scheduled_task",
+      "title": "通知与任务配置",
+      "path": "/configuration/scheduled-task",
+      "url": "http://127.0.0.1:3000/configuration/scheduled-task",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_scheduled_task.png",
+      "headings": [
+        "UI自动化通知配置"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "保存飞书机器人配置"
+      ],
+      "body_preview": "AI用例生成配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\n定时任务配置\n🇨🇳\n简体中文\nadmin\nUI自动化通知配置\n\n配置飞书、企微、钉钉Webhook机器人地址\n\n飞书机器人\n企微机器人\n钉钉机器人\n机器人名称\n启用\nWebhook URL\n飞书机器人Webhook URL格式：https://open.feishu.cn/open-apis/bot/v2/hook/...\n业务类型\nUI自动化测试\n接口测试\n保存飞书机器人配置",
+      "status": "ok"
+    },
+    {
+      "slug": "config_dify",
+      "title": "Dify配置",
+      "path": "/configuration/dify",
+      "url": "http://127.0.0.1:3000/configuration/dify",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\config_dify.png",
+      "headings": [
+        "AI评测师配置"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "测试连接",
+        "保存配置",
+        "重置"
+      ],
+      "body_preview": "AI用例生成配置\nUI环境配置\nAPP环境配置\nAI智能模式配置\n定时任务配置\nAI评测师配置\n首页\n/\n配置中心\n/\nAI评测师配置\n🇨🇳\n简体中文\nadmin\nAI评测师配置\n\n配置Dify API以启用AI评测师功能\n\nDify API配置\n未配置\nAPI URL\nDify API的完整URL地址\nAPI Key\n从Dify平台获取的API密钥\n启用状态\n已启用\n测试连接\n保存配置\n重置",
+      "status": "ok"
+    },
+    {
+      "slug": "app_dashboard",
+      "title": "APP自动化仪表盘",
+      "path": "/app-automation/dashboard",
+      "url": "http://127.0.0.1:3000/app-automation/dashboard",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_dashboard.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "查看全部"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\nDashboard\n🇨🇳\n简体中文\nadmin\n0\n总设备数\n0\n在线设备\n0\n已锁定设备\n0\n测试用例\n执行统计\n总执行次数\n0\n成功次数\n0\n失败次数\n0\n通过率\n0%\n最近执行记录\n查看全部\n\n暂无执行记录\n\n快速操作\n设备管理\n元素管理\n测试用例\n执行记录",
+      "status": "ok"
+    },
+    {
+      "slug": "app_projects",
+      "title": "APP项目管理",
+      "path": "/app-automation/projects",
+      "url": "http://127.0.0.1:3000/app-automation/projects",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_projects.png",
+      "headings": [
+        "APP项目管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建项目",
+        "查询",
+        "重置",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n项目管理\n🇨🇳\n简体中文\nadmin\nAPP项目管理\n新建项目\n项目状态\n查询\n重置\n项目名称\n\t\n描述\n\t\n状态\n\t\n用例数\n\t\n套件数\n\t\n负责人\n\t\n成员数\n\t\n开始日期\n\t\n结束日期\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1",
+      "status": "ok"
+    },
+    {
+      "slug": "app_devices",
+      "title": "设备管理",
+      "path": "/app-automation/devices",
+      "url": "http://127.0.0.1:3000/app-automation/devices",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_devices.png",
+      "headings": [
+        "设备管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新设备",
+        "添加远程设备"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n设备管理\n🇨🇳\n简体中文\nadmin\n设备管理\n刷新设备\n添加远程设备\n设备名称\n\t\n设备序列号\n\t\n状态\n\t\n锁定用户\n\t\n锁定时间\n\t\nAndroid版本\n\t\n连接类型\n\t\nIP地址\n\t\n使用次数\n\t\n更新时间\n\t\n操作\n暂无设备，请点击刷新设备或添加远程设备",
+      "status": "ok"
+    },
+    {
+      "slug": "app_packages",
+      "title": "应用包管理",
+      "path": "/app-automation/packages",
+      "url": "http://127.0.0.1:3000/app-automation/packages",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_packages.png",
+      "headings": [
+        "包名管理"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新",
+        "新增包名"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n包名管理\n🇨🇳\n简体中文\nadmin\n包名管理\n刷新\n新增包名\n应用名称\n\t\n应用包名\n\t\n创建人\n\t\n创建时间\n\t\n更新时间\n\t\n操作\n暂无应用包名",
+      "status": "ok"
+    },
+    {
+      "slug": "app_elements",
+      "title": "APP元素管理",
+      "path": "/app-automation/elements",
+      "url": "http://127.0.0.1:3000/app-automation/elements",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_elements.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "从设备创建",
+        "手动创建",
+        "按 使用次数 排序",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n元素管理\n🇨🇳\n简体中文\nadmin\n全部项目\n全部\n图片\n坐标\n区域\n从设备创建\n手动创建\n\t\n元素名称\n\t\n类型\n\t\n图片分类\n\t\n标签\n\t\n预览\n\t\n使用次数\n\t\n创建时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "app_scene_builder",
+      "title": "场景编排",
+      "path": "/app-automation/scene-builder",
+      "url": "http://127.0.0.1:3000/app-automation/scene-builder",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_scene_builder.png",
+      "headings": [
+        "App自动化用例编排"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "保存用例",
+        "重置",
+        "+ 添加变量",
+        "导入组件包",
+        "导出组件包",
+        "另存为自定义组件",
+        "创建元素工具"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n用例编排\n🇨🇳\n简体中文\nadmin\nApp自动化用例编排\n保存用例\n重置\n场景名称\n所属项目\n请选择项目\n场景描述\n场景变量\n+ 添加变量\nAPI_BASE_URL\n重试次数\n重试间隔(秒)\n组件库\n导入组件包\n导出组件包\n基础组件\n自定义组件\n暂无基础组件\n场景步骤\n另存为自定义组件\n从左侧拖动组件到此处，组成UI测试场景\n组件配置\n创建元素工具\n请选择场景步骤进行配置",
+      "status": "ok"
+    },
+    {
+      "slug": "app_test_cases",
+      "title": "APP测试用例",
+      "path": "/app-automation/test-cases",
+      "url": "http://127.0.0.1:3000/app-automation/test-cases",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_test_cases.png",
+      "headings": [
+        "APP测试用例"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新",
+        "搜索",
+        "刷新",
+        "查看全部"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n测试用例\n🇨🇳\n简体中文\nadmin\nAPP测试用例\n刷新\n所属项目\n全部项目\n选择设备\n请选择设备\n选择应用\n请选择应用（可选）\n搜索用例\n搜索\n\t\n用例名称\n\t\n场景描述\n\t\n更新时间\n\t\n操作\n暂无测试用例\n最近测试执行记录\n刷新\n查看全部\n测试用例\n\t\n设备\n\t\n测试人员\n\t\n状态\n\t\n执行进度\n\t\n开始时间\n\t\n结束时间\n\t\n操作\n暂无数据",
+      "status": "ok"
+    },
+    {
+      "slug": "app_test_suites",
+      "title": "APP测试套件",
+      "path": "/app-automation/test-suites",
+      "url": "http://127.0.0.1:3000/app-automation/test-suites",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_test_suites.png",
+      "headings": [
+        "测试套件"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建套件",
+        "刷新"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n测试套件\n🇨🇳\n简体中文\nadmin\n测试套件\n新建套件\n刷新\n所属项目\n全部项目\n选择设备\n请选择设备\n选择应用\n请选择应用（可选）\n搜索套件\n套件名称\n\t\n描述\n\t\n用例数\n\t\n执行状态\n\t\n通过/失败\n\t\n最后执行\n\t\n更新时间\n\t\n操作\n暂无测试套件",
+      "status": "ok"
+    },
+    {
+      "slug": "app_executions",
+      "title": "APP执行记录",
+      "path": "/app-automation/executions",
+      "url": "http://127.0.0.1:3000/app-automation/executions",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_executions.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "刷新",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n执行记录\n🇨🇳\n简体中文\nadmin\n全部项目\n状态筛选\n刷新\n测试用例\n\t\n设备\n\t\n状态\n\t\n进度\n\t\n步骤统计\n\t\n耗时\n\t\n执行人\n\t\n开始时间\n\t\n结束时间\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1\n前往\n页",
+      "status": "ok"
+    },
+    {
+      "slug": "app_reports",
+      "title": "APP测试报告",
+      "path": "/app-automation/reports",
+      "url": "http://127.0.0.1:3000/app-automation/reports",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_reports.png",
+      "headings": [],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "查询",
+        "重置",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n测试报告\n🇨🇳\n简体中文\nadmin\n套件报告\n用例报告\n0\n套件总数\n0\n已执行\n0\n最近失败\n0%\n平均通过率\n全部项目\n执行状态\n查询\n重置\n套件名称\n\t\n描述\n\t\n执行状态\n\t\n用例通过率\n\t\n用例统计\n\t\n创建人\n\t\n最后执行\n\t\n操作\n暂无数据\n共 0 条\n20条/页\n1",
+      "status": "ok"
+    },
+    {
+      "slug": "app_scheduled_tasks",
+      "title": "APP定时任务",
+      "path": "/app-automation/scheduled-tasks",
+      "url": "http://127.0.0.1:3000/app-automation/scheduled-tasks",
+      "screenshot": "D:\\TestHub\\testhub_platform\\docs\\tutorial_assets\\screenshots\\app_scheduled_tasks.png",
+      "headings": [
+        "APP定时任务"
+      ],
+      "buttons": [
+        "🇨🇳\n简体中文",
+        "admin",
+        "新建任务",
+        "重置",
+        "查询",
+        "上一页",
+        "下一页"
+      ],
+      "body_preview": "Dashboard\n项目管理\n设备管理\n包名管理\n元素管理\n用例编排\n测试用例\n测试套件\n执行记录\n测试报告\n定时任务\n通知列表\n首页\n/\nAPP自动化测试\n/\n定时任务\n🇨🇳\n简体中文\nadmin\nAPP定时任务\n新建任务\n全部项目\n任务类型\n触发器类型\n状态\n重置\n查询\n任务名称\n\t\n任务类型\n\t\n触发器\n\t\n通知\n\t\n状态\n\t\n设备\n\t\n下次执行\n\t\n上次执行\n\t\n执行统计\n\t\n操作\n暂无数据\n共 0 条\n10条/页\n1",
+      "status": "ok"
+    }
+  ]
+}

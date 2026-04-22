@@ -1,0 +1,103 @@
+# ============================================================
+# 虚拟环境
+# ============================================================
+.venv/
+.venv*/
+venv/
+env/
+__pycache__/
+*.pyc
+
+# ============================================================
+# 编辑器 / IDE
+# ============================================================
+.idea/
+.vscode/
+.trae/
+.claude/
+.DS_Store
+
+# ============================================================
+# 测试缓存
+# ============================================================
+.pytest_cache/
+
+# ============================================================
+# 配置与密钥
+# ============================================================
+.env
+*.sql
+*.bak
+备注笔记.txt
+
+# ============================================================
+# 临时 / 调试输出 (严禁提交)
+# 包括钱包自动化产生的运行时 Chrome profile
+# ============================================================
+.tmp/
+tmp_*
+tmp-*
+*.tmp
+*.err.log
+
+# ============================================================
+# 日志
+# ============================================================
+logs/*
+!logs/.gitkeep
+!logs/*/
+logs/*/*
+!logs/*/.gitkeep
+
+# ============================================================
+# 静态与媒体文件
+# ============================================================
+static_files/img/
+media/allure-static/*
+!media/allure-static/.gitkeep
+media/ai_recording/*
+!media/ai_recording/.gitkeep
+media/requirement_docs/*
+!media/requirement_docs/.gitkeep
+media/api-testing/allure-results/*
+!media/api-testing/allure-results/.gitkeep
+media/api-testing/allure-reports/*
+!media/api-testing/allure-reports/.gitkeep
+media/api-testing/allure-static/*
+!media/api-testing/allure-static/.gitkeep
+media/app-automation/allure-results/*
+!media/app-automation/allure-results/.gitkeep
+media/app-automation/allure-reports/*
+!media/app-automation/allure-reports/.gitkeep
+media/app-automation/screenshots/*
+!media/app-automation/screenshots/.gitkeep
+
+# ============================================================
+# Django migrations (仅保留 __init__.py)
+# ============================================================
+apps/*/migrations/*
+!apps/*/migrations/__init__.py
+
+# ============================================================
+# APP 自动化模板
+# ============================================================
+apps/app_automation/Template/**
+!apps/app_automation/Template/
+
+# ============================================================
+# 前端
+# ============================================================
+frontend/node_modules/
+frontend/.DS_Store
+frontend/*.log
+frontend/dist/
+
+# ============================================================
+# Docker (本仓库不随代码分发)
+# ============================================================
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+nginx.conf
+Makefile
+build-multiplatform.sh
