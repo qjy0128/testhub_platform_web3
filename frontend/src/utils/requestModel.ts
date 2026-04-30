@@ -1,5 +1,3 @@
-import * as curlconverter from 'curlconverter'
-
 export interface RequestModel {
   method: string
   baseURL: string
@@ -49,99 +47,261 @@ export interface Auth {
   addTo?: 'header' | 'query'
 }
 
+function tokenizeCurlCommand(command: string): string[] {
+  const tokens: string[] = []
+  let current = ''
+  let quote: '"' | "'" | null = null
+  let escaped = false
+
+  for (const char of command.trim()) {
+    if (escaped) {
+      if (char !== '\n' && char !== '\r') {
+        current += char
+      }
+      escaped = false
+      continue
+    }
+
+    if (char === '\\' && quote !== "'") {
+      escaped = true
+      continue
+    }
+
+    if (quote) {
+      if (char === quote) {
+        quote = null
+      } else {
+        current += char
+      }
+      continue
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        tokens.push(current)
+        current = ''
+      }
+      continue
+    }
+
+    current += char
+  }
+
+  if (escaped) {
+    current += '\\'
+  }
+  if (quote) {
+    throw new Error('cURL 命令存在未闭合的引号')
+  }
+  if (current) {
+    tokens.push(current)
+  }
+
+  return tokens
+}
+
+function splitOption(token: string): [string, string | undefined] {
+  const equalIndex = token.indexOf('=')
+  if (token.startsWith('--') && equalIndex > -1) {
+    return [token.slice(0, equalIndex), token.slice(equalIndex + 1)]
+  }
+  if (token.startsWith('-X') && token.length > 2) {
+    return ['-X', token.slice(2)]
+  }
+  if (token.startsWith('-H') && token.length > 2) {
+    return ['-H', token.slice(2)]
+  }
+  if (token.startsWith('-d') && token.length > 2) {
+    return ['-d', token.slice(2)]
+  }
+  if (token.startsWith('-F') && token.length > 2) {
+    return ['-F', token.slice(2)]
+  }
+  return [token, undefined]
+}
+
+function normalizeUrl(value: string): URL {
+  const raw = value.trim()
+  return new URL(/^https?:\/\//i.test(raw) ? raw : `http://${raw}`)
+}
+
+function parseHeader(value: string): Header | null {
+  const colonIndex = value.indexOf(':')
+  if (colonIndex <= 0) {
+    return null
+  }
+  return {
+    key: value.slice(0, colonIndex).trim(),
+    value: value.slice(colonIndex + 1).trim(),
+    enabled: true
+  }
+}
+
+function parsePairs(value: string): FormField[] {
+  return value
+    .split('&')
+    .filter(Boolean)
+    .map(item => {
+      const equalIndex = item.indexOf('=')
+      if (equalIndex === -1) {
+        return { key: decodeURIComponent(item), value: '', type: 'text', enabled: true }
+      }
+      return {
+        key: decodeURIComponent(item.slice(0, equalIndex)),
+        value: decodeURIComponent(item.slice(equalIndex + 1)),
+        type: 'text',
+        enabled: true
+      }
+    })
+}
+
+function parseFormField(value: string): FormField | null {
+  const equalIndex = value.indexOf('=')
+  if (equalIndex <= 0) {
+    return null
+  }
+  const key = value.slice(0, equalIndex)
+  const rawValue = value.slice(equalIndex + 1)
+  return {
+    key,
+    value: rawValue.startsWith('@') ? rawValue.slice(1) : rawValue,
+    type: rawValue.startsWith('@') ? 'file' : 'text',
+    enabled: true
+  }
+}
+
 export class RequestModelParser {
   static async parseCurl(curlCommand: string): Promise<RequestModel> {
     try {
-      const harData = curlconverter.toHarString(curlCommand)
-      const har = JSON.parse(harData)
-      
-      if (!har.log || !har.log.entries || har.log.entries.length === 0) {
-        throw new Error('无法解析CURL命令，请检查格式')
+      const tokens = tokenizeCurlCommand(curlCommand)
+      if (!tokens.length || !/curl(?:\.exe)?$/i.test(tokens[0])) {
+        throw new Error('命令必须以 curl 开头')
       }
-      
-      const entry = har.log.entries[0]
-      const request = entry.request
-      
-      // console.log('HAR request URL:', request.url)
-      // console.log('HAR request queryString:', request.queryString)
-      
-      const url = new URL(request.url)
-      const baseURL = `${url.protocol}//${url.host}`
-      const path = url.pathname
-      
-      const query: QueryParam[] = []
-      
-      if (request.queryString && request.queryString.length > 0) {
-        request.queryString.forEach((param: any) => {
-          query.push({ key: param.name, value: param.value || '', enabled: true })
-        })
-      } else {
-        url.searchParams.forEach((value, key) => {
-          query.push({ key, value, enabled: true })
-        })
-      }
-      
-      // console.log('Parsed URL:', { baseURL, path, search: url.search, searchParams: Array.from(url.searchParams.entries()), query })
-      
+
+      let method = 'GET'
+      let urlValue = ''
       const headers: Header[] = []
-      
-      if (request.cookies && request.cookies.length > 0) {
-        const cookieValue = request.cookies
-          .map((cookie: any) => `${cookie.name}=${cookie.value}`)
-          .join('; ')
-        headers.push({ key: 'Cookie', value: cookieValue, enabled: true })
+      const dataChunks: string[] = []
+      const formFields: FormField[] = []
+      let forceUrlEncoded = false
+
+      const readValue = (index: number, inlineValue?: string) => {
+        if (inlineValue !== undefined) {
+          return { value: inlineValue, nextIndex: index }
+        }
+        const value = tokens[index + 1]
+        if (value === undefined) {
+          throw new Error(`选项 ${tokens[index]} 缺少参数`)
+        }
+        return { value, nextIndex: index + 1 }
       }
-      
-      request.headers.forEach((header: any) => {
-        headers.push({ key: header.name, value: header.value, enabled: true })
-      })
-      
-      // console.log('HAR headers:', request.headers)
-      // console.log('HAR cookies:', request.cookies)
-      // console.log('Parsed headers:', headers)
-      
-      const body: Body = { mode: 'none' }
-      if (request.postData) {
-        const postData = request.postData
-        const contentType = headers.find(h => h.key.toLowerCase() === 'content-type')?.value
-        
-        if (contentType?.includes('application/json')) {
-          body.mode = 'json'
-          body.json = postData.text || ''
-        } else if (contentType?.includes('application/x-www-form-urlencoded')) {
-          body.mode = 'urlencoded'
-          body.urlencoded = []
-          if (postData.params) {
-            postData.params.forEach((param: any) => {
-              body.urlencoded?.push({ 
-                key: param.name, 
-                value: param.value || '', 
-                type: 'text', 
-                enabled: true 
-              })
-            })
+
+      for (let i = 1; i < tokens.length; i += 1) {
+        const token = tokens[i]
+        const [option, inlineValue] = splitOption(token)
+
+        if (!option.startsWith('-')) {
+          urlValue = urlValue || option
+          continue
+        }
+
+        if (option === '-X' || option === '--request') {
+          const result = readValue(i, inlineValue)
+          method = result.value.toUpperCase()
+          i = result.nextIndex
+        } else if (option === '-H' || option === '--header') {
+          const result = readValue(i, inlineValue)
+          const header = parseHeader(result.value)
+          if (header) {
+            headers.push(header)
           }
-        } else if (contentType?.includes('multipart/form-data')) {
-          body.mode = 'formdata'
-          body.formdata = []
-          if (postData.params) {
-            postData.params.forEach((param: any) => {
-              body.formdata?.push({
-                key: param.name,
-                value: param.value || param.fileName || '',
-                type: param.fileName ? 'file' : 'text',
-                enabled: true
-              })
-            })
+          i = result.nextIndex
+        } else if (option === '-A' || option === '--user-agent') {
+          const result = readValue(i, inlineValue)
+          headers.push({ key: 'User-Agent', value: result.value, enabled: true })
+          i = result.nextIndex
+        } else if (option === '-b' || option === '--cookie' || option === '--cookie-jar') {
+          const result = readValue(i, inlineValue)
+          headers.push({ key: 'Cookie', value: result.value, enabled: true })
+          i = result.nextIndex
+        } else if (option === '-u' || option === '--user') {
+          const result = readValue(i, inlineValue)
+          headers.push({ key: 'Authorization', value: `Basic ${btoa(result.value)}`, enabled: true })
+          i = result.nextIndex
+        } else if (
+          option === '-d' ||
+          option === '--data' ||
+          option === '--data-raw' ||
+          option === '--data-binary' ||
+          option === '--data-ascii' ||
+          option === '--data-urlencode'
+        ) {
+          const result = readValue(i, inlineValue)
+          dataChunks.push(result.value)
+          forceUrlEncoded = forceUrlEncoded || option === '--data-urlencode'
+          if (method === 'GET') {
+            method = 'POST'
           }
-        } else {
-          body.mode = 'raw'
-          body.raw = postData.text || ''
+          i = result.nextIndex
+        } else if (option === '-F' || option === '--form' || option === '--form-string') {
+          const result = readValue(i, inlineValue)
+          const field = parseFormField(result.value)
+          if (field) {
+            formFields.push(field)
+          }
+          if (method === 'GET') {
+            method = 'POST'
+          }
+          i = result.nextIndex
+        } else if (option === '--url') {
+          const result = readValue(i, inlineValue)
+          urlValue = result.value
+          i = result.nextIndex
+        } else if (option === '-I' || option === '--head') {
+          method = 'HEAD'
         }
       }
-      
+
+      if (!urlValue) {
+        throw new Error('未找到请求 URL')
+      }
+
+      const url = normalizeUrl(urlValue)
+      const baseURL = `${url.protocol}//${url.host}`
+      const path = url.pathname
+      const query: QueryParam[] = []
+
+      url.searchParams.forEach((value, key) => {
+        query.push({ key, value, enabled: true })
+      })
+
+      const body: Body = { mode: 'none' }
+      const contentType = headers.find(h => h.key.toLowerCase() === 'content-type')?.value?.toLowerCase() || ''
+
+      if (formFields.length) {
+        body.mode = 'formdata'
+        body.formdata = formFields
+      } else if (dataChunks.length) {
+        const rawBody = dataChunks.join('&')
+        if (contentType.includes('application/json') || /^[\[{]/.test(rawBody.trim())) {
+          body.mode = 'json'
+          body.json = rawBody
+        } else if (forceUrlEncoded || contentType.includes('application/x-www-form-urlencoded')) {
+          body.mode = 'urlencoded'
+          body.urlencoded = parsePairs(rawBody)
+        } else {
+          body.mode = 'raw'
+          body.raw = rawBody
+        }
+      }
+
       return {
-        method: request.method || 'GET',
+        method,
         baseURL,
         path,
         query,

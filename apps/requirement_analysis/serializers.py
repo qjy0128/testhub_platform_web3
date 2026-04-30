@@ -1,9 +1,17 @@
 from rest_framework import serializers
+from apps.core.url_safety import validate_outbound_http_url
+from apps.projects.models import Project
+from apps.projects.unified import user_can_access_project
 from .models import (
     RequirementDocument, RequirementAnalysis, BusinessRequirement,
     GeneratedTestCase, AnalysisTask, AIModelConfig, PromptConfig, TestCaseGenerationTask,
     GenerationConfig
 )
+
+
+def _request_user(context):
+    request = context.get('request')
+    return getattr(request, 'user', None)
 
 
 class RequirementDocumentSerializer(serializers.ModelSerializer):
@@ -20,10 +28,17 @@ class RequirementDocumentSerializer(serializers.ModelSerializer):
                  'project_name', 'created_at', 'updated_at', 'file_size', 'extracted_text']
         read_only_fields = ['uploaded_by', 'file_size', 'extracted_text']
     
-    def get_file_url(self, obj):
+    def get_file_url(self, obj) -> str:
         if obj.file:
             return obj.file.url
         return None
+
+    def validate_project(self, project):
+        if project is None:
+            return project
+        if not user_can_access_project(_request_user(self.context), project):
+            raise serializers.ValidationError('Project is not accessible.')
+        return project
 
 
 class BusinessRequirementSerializer(serializers.ModelSerializer):
@@ -77,7 +92,7 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
                  'started_at', 'completed_at', 'created_at', 'duration']
         read_only_fields = ['task_id', 'result', 'error_message', 'started_at', 'completed_at']
     
-    def get_duration(self, obj):
+    def get_duration(self, obj) -> str:
         if obj.started_at and obj.completed_at:
             return (obj.completed_at - obj.started_at).total_seconds()
         return None
@@ -88,6 +103,13 @@ class DocumentUploadSerializer(serializers.ModelSerializer):
     class Meta:
         model = RequirementDocument
         fields = ['id', 'title', 'file', 'project']
+
+    def validate_project(self, project):
+        if project is None:
+            return project
+        if not user_can_access_project(_request_user(self.context), project):
+            raise serializers.ValidationError('Project is not accessible.')
+        return project
     
     def create(self, validated_data):
         # 自动设置上传者（如果用户已登录）
@@ -173,7 +195,7 @@ class AIModelConfigSerializer(serializers.ModelSerializer):
             'api_key': {'write_only': True}  # API Key只用于写入，不在响应中返回
         }
     
-    def get_api_key_masked(self, obj):
+    def get_api_key_masked(self, obj) -> str:
         """返回掩码版本的API Key"""
         if obj.api_key:
             # 显示前3个字符和后4个字符，中间用*替代
@@ -183,6 +205,12 @@ class AIModelConfigSerializer(serializers.ModelSerializer):
                 return '*' * len(obj.api_key)
         return ''
     
+    def validate_base_url(self, value):
+        try:
+            return validate_outbound_http_url(value, label='Requirement AI base URL')
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
     def create(self, validated_data):
         # 自动设置创建者
         user = self.context['request'].user
@@ -261,7 +289,7 @@ class TestCaseGenerationTaskSerializer(serializers.ModelSerializer):
                 default_user = User.objects.first()
             validated_data['created_by'] = default_user
         
-        validated_data['task_id'] = f"TASK_{uuid.uuid4().hex[:8].upper()}"
+        validated_data['task_id'] = f"TASK_{uuid.uuid4().hex.upper()}"
         
         return super().create(validated_data)
 
@@ -270,6 +298,12 @@ class TestCaseGenerationRequestSerializer(serializers.Serializer):
     """新的测试用例生成请求序列化器"""
     title = serializers.CharField(max_length=200, help_text="任务标题")
     requirement_text = serializers.CharField(help_text="需求描述")
+    project = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="关联项目"
+    )
     use_writer_model = serializers.BooleanField(default=True, help_text="是否使用编写模型")
     use_reviewer_model = serializers.BooleanField(default=True, help_text="是否使用评审模型")
 

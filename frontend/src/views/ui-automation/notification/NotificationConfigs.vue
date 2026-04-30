@@ -264,6 +264,32 @@ export default {
       return displayNameMap[botType] || botType
     }
 
+    const isMaskedCredential = (value) => typeof value === 'string' && value.includes('***')
+
+    const buildWebhookBotPayload = (botType, botConfig) => {
+      const botData = {
+        name: botConfig.name || `${botType} bot`,
+        enabled: botConfig.enabled,
+        enable_ui_automation: botConfig.enable_ui_automation,
+        enable_api_testing: botConfig.enable_api_testing
+      }
+
+      if (botConfig.webhook_url && !isMaskedCredential(botConfig.webhook_url)) {
+        botData.webhook_url = botConfig.webhook_url
+      }
+
+      if (botType === 'dingtalk' && botConfig.secret && !isMaskedCredential(botConfig.secret)) {
+        botData.secret = botConfig.secret
+      }
+
+      return botData
+    }
+
+    const findWebhookBotDisplay = (config, botType) => {
+      const displayBots = config.webhook_bots_display || []
+      return displayBots.find((bot) => bot.type === botType) || null
+    }
+
     // 保存Webhook机器人配置
     const saveWebhookBot = async (botType) => {
       const formRef = botType === 'feishu' ? feishuFormRef.value :
@@ -295,27 +321,12 @@ export default {
           const configResponse = await getUnifiedNotificationConfigs({ config_type: configType })
           const existingConfig = configResponse.data.results[0]
 
-          // 合并现有的webhook_bots和其他字段
-          const updatedWebhookBots = existingConfig.webhook_bots || {}
-          const botData = {
-            name: botConfig.name || `${botType}机器人`,
-            webhook_url: botConfig.webhook_url,
-            enabled: botConfig.enabled,
-            enable_ui_automation: botConfig.enable_ui_automation,
-            enable_api_testing: botConfig.enable_api_testing
-          }
-
-          // 钉钉机器人需要额外保存secret字段
-          if (botType === 'dingtalk' && botConfig.secret) {
-            botData.secret = botConfig.secret
-          }
-
-          updatedWebhookBots[botType] = botData
-
           requestData = {
             name: existingConfig.name || `${botDisplayName}${t('uiAutomation.notification.configs.title')}`,
             config_type: configType,
-            webhook_bots: updatedWebhookBots,
+            webhook_bots: {
+              [botType]: buildWebhookBotPayload(botType, botConfig)
+            },
             is_active: true
           }
 
@@ -326,24 +337,11 @@ export default {
           ElMessage.success(t(`uiAutomation.notification.configs.messages.${successMsgKey}`))
         } else {
           // 创建新配置
-          const botData = {
-            name: botConfig.name || `${botType}机器人`,
-            webhook_url: botConfig.webhook_url,
-            enabled: botConfig.enabled,
-            enable_ui_automation: botConfig.enable_ui_automation,
-            enable_api_testing: botConfig.enable_api_testing
-          }
-
-          // 钉钉机器人需要额外保存secret字段
-          if (botType === 'dingtalk' && botConfig.secret) {
-            botData.secret = botConfig.secret
-          }
-
           requestData = {
             name: `${botDisplayName}${t('uiAutomation.notification.configs.title')}`,
             config_type: configType,
             webhook_bots: {
-              [botType]: botData
+              [botType]: buildWebhookBotPayload(botType, botConfig)
             },
             is_active: true
           }
@@ -372,16 +370,15 @@ export default {
         if (response.data.results && response.data.results.length > 0) {
           const config = response.data.results[0]
 
-          if (config.webhook_bots && config.webhook_bots[botType]) {
-            const bot = config.webhook_bots[botType]
+          const bot = findWebhookBotDisplay(config, botType)
+          if (bot) {
             webhookBots[botType].name = bot.name || ''
             webhookBots[botType].webhook_url = bot.webhook_url || ''
             webhookBots[botType].enabled = bot.enabled !== false
             webhookBots[botType].enable_ui_automation = bot.enable_ui_automation !== false
             webhookBots[botType].enable_api_testing = bot.enable_api_testing !== false
-            // 钉钉机器人需要额外读取secret字段
-            if (botType === 'dingtalk' && bot.secret) {
-              webhookBots[botType].secret = bot.secret
+            if (botType === 'dingtalk') {
+              webhookBots[botType].secret = ''
             }
           }
         }

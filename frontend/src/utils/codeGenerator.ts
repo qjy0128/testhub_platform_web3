@@ -1,10 +1,17 @@
-import { RequestModel } from './requestModel'
-import * as curlconverter from 'curlconverter'
+import type { Body, Header, RequestModel } from './requestModel'
 
 export interface CodeTemplate {
   language: string
   extension: string
   generator: (curlCommand: string) => string
+}
+
+interface RequestInfo {
+  method: string
+  url: string
+  headers: Record<string, string>
+  body: string
+  bodyMode: Body['mode']
 }
 
 export class CodeGenerator {
@@ -106,73 +113,73 @@ export class CodeGenerator {
 
   static async generateCode(model: RequestModel, language: string): Promise<string> {
     const curlCommand = this.buildCurlCommand(model)
-    
+
     if (language === 'curl') {
       return curlCommand
     }
-    
+
     const mappedLanguage = this.languageMap[language] || language
+    const info = this.toRequestInfo(model)
 
     try {
       switch (mappedLanguage) {
         case 'javascript':
-          return curlconverter.toJavaScript(curlCommand)
-        case 'python':
-          return curlconverter.toPython(curlCommand)
-        case 'java':
-          return curlconverter.toJava(curlCommand)
         case 'node':
-          return curlconverter.toNode(curlCommand)
+          return this.generateFetch(info)
+        case 'python':
+          return this.generatePython(info)
+        case 'java':
+          return this.generateJava(info)
         case 'http':
-          return curlconverter.toHTTP(curlCommand)
+          return this.generateHttp(info)
         case 'php':
-          return curlconverter.toPhp(curlCommand)
+          return this.generatePhp(info)
         case 'go':
-          return curlconverter.toGo(curlCommand)
+          return this.generateGo(info)
         case 'csharp':
-          return curlconverter.toCSharp(curlCommand)
+          return this.generateCSharp(info)
         case 'ruby':
-          return curlconverter.toRuby(curlCommand)
+          return this.generateRuby(info)
         case 'swift':
-          return curlconverter.toSwift(curlCommand)
+          return this.generateSwift(info)
         case 'kotlin':
-          return curlconverter.toKotlin(curlCommand)
+          return this.generateKotlin(info)
         case 'rust':
-          return curlconverter.toRust(curlCommand)
+          return this.generateRust(info)
         case 'dart':
-          return curlconverter.toDart(curlCommand)
+          return this.generateDart(info)
         case 'objc':
-          return curlconverter.toObjectiveC(curlCommand)
+          return this.generateObjectiveC(info)
         case 'powershell':
-          return curlconverter.toPowershellWebRequest(curlCommand)
+          return this.generatePowerShell(info)
         case 'matlab':
-          return curlconverter.toMATLAB(curlCommand)
+          return this.generateMatlab(info)
         case 'r':
-          return curlconverter.toR(curlCommand)
+          return this.generateR(info)
         case 'ansible':
-          return curlconverter.toAnsible(curlCommand)
+          return this.generateAnsible(info)
         case 'c':
-          return curlconverter.toC(curlCommand)
+          return this.generateC(info)
         case 'cfml':
-          return curlconverter.toCFML(curlCommand)
+          return this.generateCfml(info)
         case 'clojure':
-          return curlconverter.toClojure(curlCommand)
+          return this.generateClojure(info)
         case 'elixir':
-          return curlconverter.toElixir(curlCommand)
+          return this.generateElixir(info)
         case 'httpie':
-          return curlconverter.toHttpie(curlCommand)
+          return this.generateHttpie(info)
         case 'julia':
-          return curlconverter.toJulia(curlCommand)
+          return this.generateJulia(info)
         case 'lua':
-          return curlconverter.toLua(curlCommand)
+          return this.generateLua(info)
         case 'ocaml':
-          return curlconverter.toOCaml(curlCommand)
+          return this.generateOcaml(info)
         case 'perl':
-          return curlconverter.toPerl(curlCommand)
+          return this.generatePerl(info)
         case 'wget':
-          return curlconverter.toWget(curlCommand)
+          return this.generateWget(info)
         default:
-          return curlconverter.toPython(curlCommand)
+          return this.generateFallback(language, curlCommand)
       }
     } catch (error) {
       console.error('Error generating code:', error)
@@ -180,30 +187,47 @@ export class CodeGenerator {
     }
   }
 
+  private static toRequestInfo(model: RequestModel): RequestInfo {
+    return {
+      method: model.method.toUpperCase(),
+      url: this.buildUrl(model),
+      headers: this.enabledHeaders(model.headers),
+      body: this.bodyValue(model.body),
+      bodyMode: model.body.mode
+    }
+  }
+
   private static buildCurlCommand(model: RequestModel): string {
-    const url = this.buildUrl(model)
-    const method = model.method.toUpperCase()
-    const headers = this.buildCurlHeaders(model)
-    const body = this.buildCurlBody(model)
+    const parts = ['curl', '-X', model.method.toUpperCase()]
 
-    // console.log('Building curl command:', { url, method, headers, body })
-    // console.log('Model data:', { baseURL: model.baseURL, path: model.path, query: model.query })
+    model.headers
+      .filter(header => header.enabled && header.key)
+      .forEach(header => {
+        parts.push('-H', this.shellQuote(`${header.key}: ${header.value}`))
+      })
 
-    let curl = `curl -X ${method}`
-
-    if (headers) {
-      curl += ` ${headers}`
+    if (model.body.mode === 'formdata' && model.body.formdata) {
+      model.body.formdata
+        .filter(field => field.enabled && field.key)
+        .forEach(field => {
+          const value = field.type === 'file' ? `@${field.value}` : field.value
+          parts.push('-F', this.shellQuote(`${field.key}=${value}`))
+        })
+    } else if (model.body.mode === 'urlencoded' && model.body.urlencoded) {
+      model.body.urlencoded
+        .filter(field => field.enabled && field.key)
+        .forEach(field => {
+          parts.push('--data-urlencode', this.shellQuote(`${field.key}=${field.value}`))
+        })
+    } else {
+      const body = this.bodyValue(model.body)
+      if (body) {
+        parts.push('-d', this.shellQuote(body))
+      }
     }
 
-    if (body) {
-      curl += ` ${body}`
-    }
-
-    curl += ` '${url}'`
-
-    // console.log('Generated curl command:', curl)
-
-    return curl
+    parts.push(this.shellQuote(this.buildUrl(model)))
+    return parts.join(' ')
   }
 
   private static buildUrl(model: RequestModel): string {
@@ -221,40 +245,318 @@ export class CodeGenerator {
     }
   }
 
-  private static buildCurlHeaders(model: RequestModel): string {
-    const headers = model.headers.filter(h => h.enabled && h.key)
-
+  private static enabledHeaders(headers: Header[]): Record<string, string> {
     return headers
-      .map(h => {
-        const value = h.value.replace(/"/g, '\\"')
-        return `-H "${h.key}: ${value}"`
-      })
-      .join(' ')
+      .filter(header => header.enabled && header.key)
+      .reduce<Record<string, string>>((result, header) => {
+        result[header.key] = header.value
+        return result
+      }, {})
   }
 
-  private static buildCurlBody(model: RequestModel): string {
-    if (model.body.mode === 'none') {
+  private static bodyValue(body: Body): string {
+    if (body.mode === 'none') {
       return ''
     }
-
-    const bodyValue = model.body.raw || model.body.json || ''
-    if (!bodyValue) {
-      return ''
+    if (body.mode === 'json') {
+      return body.json || body.raw || ''
     }
-
-    switch (model.body.mode) {
-      case 'raw':
-      case 'json':
-        return `-d '${bodyValue}'`
-      case 'formdata':
-        return '--data-urlencode "data"'
-      case 'urlencoded':
-        return `--data-urlencode "${bodyValue}"`
-      case 'binary':
-        return `--data-binary "@${bodyValue}"`
-      default:
-        return ''
+    if (body.mode === 'raw' || body.mode === 'binary') {
+      return body.raw || body.json || ''
     }
+    if (body.mode === 'urlencoded' && body.urlencoded) {
+      return body.urlencoded
+        .filter(field => field.enabled && field.key)
+        .map(field => `${encodeURIComponent(field.key)}=${encodeURIComponent(field.value)}`)
+        .join('&')
+    }
+    if (body.mode === 'formdata' && body.formdata) {
+      return body.formdata
+        .filter(field => field.enabled && field.key)
+        .map(field => `${field.key}=${field.type === 'file' ? `@${field.value}` : field.value}`)
+        .join('&')
+    }
+    return ''
+  }
+
+  private static shellQuote(value: string): string {
+    return `'${value.replace(/'/g, "'\\''")}'`
+  }
+
+  private static doubleQuote(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  }
+
+  private static jsonString(value: string): string {
+    return JSON.stringify(value)
+  }
+
+  private static headersObject(info: RequestInfo): string {
+    return JSON.stringify(info.headers, null, 2)
+  }
+
+  private static generateFetch(info: RequestInfo): string {
+    const options: Record<string, unknown> = {
+      method: info.method,
+      headers: info.headers
+    }
+    if (info.body) {
+      options.body = info.body
+    }
+    return `const response = await fetch(${this.jsonString(info.url)}, ${JSON.stringify(options, null, 2)})
+const data = await response.text()
+console.log(data)`
+  }
+
+  private static generatePython(info: RequestInfo): string {
+    const bodyArg = info.body ? `,\n    data=${this.jsonString(info.body)}` : ''
+    return `import requests
+
+response = requests.request(
+    ${this.jsonString(info.method)},
+    ${this.jsonString(info.url)},
+    headers=${JSON.stringify(info.headers, null, 4)}${bodyArg}
+)
+print(response.text)`
+  }
+
+  private static generateJava(info: RequestInfo): string {
+    const headerLines = Object.entries(info.headers)
+      .map(([key, value]) => `            .header("${this.doubleQuote(key)}", "${this.doubleQuote(value)}")`)
+      .join('\n')
+    const bodyPublisher = info.body
+      ? `HttpRequest.BodyPublishers.ofString(${this.jsonString(info.body)})`
+      : 'HttpRequest.BodyPublishers.noBody()'
+    return `import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+HttpClient client = HttpClient.newHttpClient();
+HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(${this.jsonString(info.url)}))
+${headerLines ? `${headerLines}\n` : ''}            .method(${this.jsonString(info.method)}, ${bodyPublisher})
+            .build();
+
+HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+System.out.println(response.body());`
+  }
+
+  private static generateHttp(info: RequestInfo): string {
+    const url = new URL(info.url)
+    const headers = [`Host: ${url.host}`]
+      .concat(Object.entries(info.headers).map(([key, value]) => `${key}: ${value}`))
+      .join('\n')
+    return `${info.method} ${url.pathname}${url.search} HTTP/1.1
+${headers}${info.body ? `\n\n${info.body}` : ''}`
+  }
+
+  private static generatePhp(info: RequestInfo): string {
+    const headers = Object.entries(info.headers).map(([key, value]) => `${key}: ${value}`)
+    return `<?php
+$ch = curl_init(${this.jsonString(info.url)});
+curl_setopt($ch, CURLOPT_CUSTOMREQUEST, ${this.jsonString(info.method)});
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+${headers.length ? `curl_setopt($ch, CURLOPT_HTTPHEADER, ${JSON.stringify(headers, null, 2)});\n` : ''}${info.body ? `curl_setopt($ch, CURLOPT_POSTFIELDS, ${this.jsonString(info.body)});\n` : ''}$response = curl_exec($ch);
+curl_close($ch);
+echo $response;`
+  }
+
+  private static generateGo(info: RequestInfo): string {
+    const headerLines = Object.entries(info.headers)
+      .map(([key, value]) => `req.Header.Set(${this.jsonString(key)}, ${this.jsonString(value)})`)
+      .join('\n')
+    return `package main
+
+import (
+  "fmt"
+  "io"
+  "net/http"
+  "strings"
+)
+
+func main() {
+  body := strings.NewReader(${this.jsonString(info.body)})
+  req, _ := http.NewRequest(${this.jsonString(info.method)}, ${this.jsonString(info.url)}, body)
+${headerLines ? `  ${headerLines.replace(/\n/g, '\n  ')}\n` : ''}  resp, _ := http.DefaultClient.Do(req)
+  defer resp.Body.Close()
+  bytes, _ := io.ReadAll(resp.Body)
+  fmt.Println(string(bytes))
+}`
+  }
+
+  private static generateCSharp(info: RequestInfo): string {
+    const headers = Object.entries(info.headers)
+      .map(([key, value]) => `request.Headers.TryAddWithoutValidation(${this.jsonString(key)}, ${this.jsonString(value)});`)
+      .join('\n')
+    return `using System.Net.Http;
+
+using var client = new HttpClient();
+using var request = new HttpRequestMessage(new HttpMethod(${this.jsonString(info.method)}), ${this.jsonString(info.url)});
+${headers}${info.body ? `\nrequest.Content = new StringContent(${this.jsonString(info.body)});` : ''}
+using var response = await client.SendAsync(request);
+Console.WriteLine(await response.Content.ReadAsStringAsync());`
+  }
+
+  private static generateRuby(info: RequestInfo): string {
+    return `require 'net/http'
+
+uri = URI(${this.jsonString(info.url)})
+request = Net::HTTP::${info.method.charAt(0)}${info.method.slice(1).toLowerCase()}.new(uri)
+${Object.entries(info.headers).map(([key, value]) => `request[${this.jsonString(key)}] = ${this.jsonString(value)}`).join('\n')}${info.body ? `\nrequest.body = ${this.jsonString(info.body)}` : ''}
+response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == 'https') { |http| http.request(request) }
+puts response.body`
+  }
+
+  private static generateSwift(info: RequestInfo): string {
+    return `import Foundation
+
+var request = URLRequest(url: URL(string: ${this.jsonString(info.url)})!)
+request.httpMethod = ${this.jsonString(info.method)}
+${Object.entries(info.headers).map(([key, value]) => `request.setValue(${this.jsonString(value)}, forHTTPHeaderField: ${this.jsonString(key)})`).join('\n')}${info.body ? `\nrequest.httpBody = ${this.jsonString(info.body)}.data(using: .utf8)` : ''}
+URLSession.shared.dataTask(with: request) { data, _, _ in
+    print(String(data: data ?? Data(), encoding: .utf8) ?? "")
+}.resume()`
+  }
+
+  private static generateKotlin(info: RequestInfo): string {
+    return `val client = okhttp3.OkHttpClient()
+val body = ${info.body ? `okhttp3.RequestBody.create(null, ${this.jsonString(info.body)})` : 'null'}
+val request = okhttp3.Request.Builder()
+    .url(${this.jsonString(info.url)})
+${Object.entries(info.headers).map(([key, value]) => `    .addHeader(${this.jsonString(key)}, ${this.jsonString(value)})`).join('\n')}
+    .method(${this.jsonString(info.method)}, body)
+    .build()
+val response = client.newCall(request).execute()
+println(response.body?.string())`
+  }
+
+  private static generateRust(info: RequestInfo): string {
+    return `let client = reqwest::Client::new();
+let response = client
+    .request(reqwest::Method::${info.method}, ${this.jsonString(info.url)})
+${Object.entries(info.headers).map(([key, value]) => `    .header(${this.jsonString(key)}, ${this.jsonString(value)})`).join('\n')}${info.body ? `\n    .body(${this.jsonString(info.body)})` : ''}
+    .send()
+    .await?;
+println!("{}", response.text().await?);`
+  }
+
+  private static generateDart(info: RequestInfo): string {
+    return `import 'package:http/http.dart' as http;
+
+final response = await http.Request(${this.jsonString(info.method)}, Uri.parse(${this.jsonString(info.url)}))
+  ..headers.addAll(${JSON.stringify(info.headers)})
+${info.body ? `  ..body = ${this.jsonString(info.body)}\n` : ''};
+print((await response.send()).statusCode);`
+  }
+
+  private static generateObjectiveC(info: RequestInfo): string {
+    return `NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@${this.jsonString(info.url)}]];
+[request setHTTPMethod:@${this.jsonString(info.method)}];
+${Object.entries(info.headers).map(([key, value]) => `[request setValue:@${this.jsonString(value)} forHTTPHeaderField:@${this.jsonString(key)}];`).join('\n')}${info.body ? `\n[request setHTTPBody:[@${this.jsonString(info.body)} dataUsingEncoding:NSUTF8StringEncoding]];` : ''}`
+  }
+
+  private static generatePowerShell(info: RequestInfo): string {
+    const headers = Object.entries(info.headers)
+      .map(([key, value]) => `  ${this.jsonString(key)} = ${this.jsonString(value)}`)
+      .join('\n')
+    return `$headers = @{
+${headers}
+}
+Invoke-WebRequest -Uri ${this.jsonString(info.url)} -Method ${info.method} -Headers $headers${info.body ? ` -Body ${this.jsonString(info.body)}` : ''}`
+  }
+
+  private static generateMatlab(info: RequestInfo): string {
+    return `options = weboptions('RequestMethod', '${info.method.toLowerCase()}');
+response = webread(${this.jsonString(info.url)}, options);`
+  }
+
+  private static generateR(info: RequestInfo): string {
+    return `library(httr)
+
+response <- VERB(${this.jsonString(info.method)}, ${this.jsonString(info.url)}, add_headers(.headers = ${JSON.stringify(info.headers)})${info.body ? `, body = ${this.jsonString(info.body)}` : ''})
+content(response, "text")`
+  }
+
+  private static generateAnsible(info: RequestInfo): string {
+    return `- name: HTTP request
+  uri:
+    url: ${info.url}
+    method: ${info.method}
+    headers: ${JSON.stringify(info.headers)}
+${info.body ? `    body: ${info.body}\n` : ''}    return_content: true`
+  }
+
+  private static generateC(info: RequestInfo): string {
+    return `CURL *curl = curl_easy_init();
+curl_easy_setopt(curl, CURLOPT_URL, ${this.jsonString(info.url)});
+curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, ${this.jsonString(info.method)});
+${info.body ? `curl_easy_setopt(curl, CURLOPT_POSTFIELDS, ${this.jsonString(info.body)});\n` : ''}curl_easy_perform(curl);
+curl_easy_cleanup(curl);`
+  }
+
+  private static generateCfml(info: RequestInfo): string {
+    return `<cfhttp url=${this.jsonString(info.url)} method=${this.jsonString(info.method)}>
+${Object.entries(info.headers).map(([key, value]) => `  <cfhttpparam type="header" name=${this.jsonString(key)} value=${this.jsonString(value)}>`).join('\n')}${info.body ? `\n  <cfhttpparam type="body" value=${this.jsonString(info.body)}>` : ''}
+</cfhttp>`
+  }
+
+  private static generateClojure(info: RequestInfo): string {
+    return `(require '[clj-http.client :as client])
+(client/request {:method :${info.method.toLowerCase()}
+                 :url ${this.jsonString(info.url)}
+                 :headers ${JSON.stringify(info.headers)}${info.body ? `\n                 :body ${this.jsonString(info.body)}` : ''}})`
+  }
+
+  private static generateElixir(info: RequestInfo): string {
+    return `Req.request!(method: :${info.method.toLowerCase()}, url: ${this.jsonString(info.url)}, headers: ${JSON.stringify(info.headers)}${info.body ? `, body: ${this.jsonString(info.body)}` : ''})`
+  }
+
+  private static generateHttpie(info: RequestInfo): string {
+    const headers = Object.entries(info.headers)
+      .map(([key, value]) => `${this.shellQuote(`${key}:${value}`)}`)
+      .join(' ')
+    return `http ${info.method} ${this.shellQuote(info.url)} ${headers}${info.body ? ` ${this.shellQuote(info.body)}` : ''}`
+  }
+
+  private static generateJulia(info: RequestInfo): string {
+    return `using HTTP
+
+response = HTTP.request(${this.jsonString(info.method)}, ${this.jsonString(info.url)}, ${JSON.stringify(info.headers)}${info.body ? `, body=${this.jsonString(info.body)}` : ''})
+println(String(response.body))`
+  }
+
+  private static generateLua(info: RequestInfo): string {
+    return `local http = require("socket.http")
+local response = http.request(${this.jsonString(info.url)}${info.body ? `, ${this.jsonString(info.body)}` : ''})
+print(response)`
+  }
+
+  private static generateOcaml(info: RequestInfo): string {
+    return `Cohttp_lwt_unix.Client.call \`${info.method} (Uri.of_string ${this.jsonString(info.url)})`
+  }
+
+  private static generatePerl(info: RequestInfo): string {
+    return `use HTTP::Tiny;
+
+my $response = HTTP::Tiny->new->request(${this.jsonString(info.method)}, ${this.jsonString(info.url)}, {
+  headers => ${JSON.stringify(info.headers)}${info.body ? `,\n  content => ${this.jsonString(info.body)}` : ''}
+});
+print $response->{content};`
+  }
+
+  private static generateWget(info: RequestInfo): string {
+    const headers = Object.entries(info.headers)
+      .map(([key, value]) => `--header=${this.shellQuote(`${key}: ${value}`)}`)
+      .join(' ')
+    return `wget --method=${info.method} ${headers}${info.body ? ` --body-data=${this.shellQuote(info.body)}` : ''} ${this.shellQuote(info.url)}`
+  }
+
+  private static generateFallback(language: string, curlCommand: string): string {
+    const label = this.languageLabels[language] || language
+    return `# ${label}
+# Equivalent cURL request:
+${curlCommand}`
   }
 
   static getSupportedLanguages(): string[] {

@@ -1,17 +1,22 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 from .models import DifyConfig
 from .serializers import DifyConfigSerializer
+from apps.core.url_safety import validate_outbound_http_url
 import requests
+
+
+def validate_dify_api_url(api_url):
+    validate_outbound_http_url(api_url, label='Dify API URL')
 
 
 class DifyConfigViewSet(viewsets.ModelViewSet):
     """Dify配置管理ViewSet"""
     queryset = DifyConfig.objects.all()
     serializer_class = DifyConfigSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     
     def list(self, request):
         """获取激活的配置"""
@@ -28,6 +33,11 @@ class DifyConfigViewSet(viewsets.ModelViewSet):
     
     def create(self, request):
         """创建新配置"""
+        try:
+            validate_dify_api_url(request.data.get('api_url'))
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
         # 如果设置为激活，先将其他配置设为不激活
         if request.data.get('is_active', True):
             DifyConfig.objects.update(is_active=False)
@@ -40,6 +50,11 @@ class DifyConfigViewSet(viewsets.ModelViewSet):
     def update(self, request, pk=None, partial=False):
         """更新配置"""
         instance = self.get_object()
+        api_url = request.data.get('api_url', instance.api_url)
+        try:
+            validate_dify_api_url(api_url)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         
         # 如果设置为激活，先将其他配置设为不激活
         if request.data.get('is_active', False):
@@ -63,6 +78,13 @@ class DifyConfigViewSet(viewsets.ModelViewSet):
         if not api_url or not api_key:
             return Response(
                 {'error': 'API URL和API Key都是必填项'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            validate_dify_api_url(api_url)
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc), 'success': False},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

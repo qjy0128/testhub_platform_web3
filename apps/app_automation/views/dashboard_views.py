@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """APP自动化仪表盘视图"""
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -20,9 +20,14 @@ from ..serializers import AppTestExecutionSerializer
 logger = logging.getLogger(__name__)
 
 
+class AppDashboardSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class AppDashboardViewSet(viewsets.ViewSet):
     """APP自动化测试Dashboard"""
     permission_classes = [IsAuthenticated]
+    serializer_class = AppDashboardSchemaSerializer
     
     @action(detail=False, methods=['get'])
     def statistics(self, request):

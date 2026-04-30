@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_serializer
 from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment
 from apps.users.serializers import UserSerializer
 from apps.versions.serializers import VersionSimpleSerializer
@@ -7,6 +8,7 @@ class TestCaseStepSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestCaseStep
         fields = '__all__'
+        ref_name = 'ManualTestCaseStep'
 
 class TestCaseAttachmentSerializer(serializers.ModelSerializer):
     uploaded_by = UserSerializer(read_only=True)
@@ -22,6 +24,7 @@ class TestCaseCommentSerializer(serializers.ModelSerializer):
         model = TestCaseComment
         fields = '__all__'
 
+@extend_schema_serializer(component_name='ManualProjectSimple')
 class ProjectSimpleSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     name = serializers.CharField()
@@ -39,6 +42,7 @@ class TestCaseSerializer(serializers.ModelSerializer):
         model = TestCase
         fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
+        ref_name = 'ManualTestCase'
 
 class TestCaseListSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
@@ -55,16 +59,16 @@ class TestCaseListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
     
-    def get_author(self, obj):
+    def get_author(self, obj) -> dict:
         return {'id': obj.author.id, 'username': obj.author.username} if obj.author else None
     
-    def get_assignee(self, obj):
+    def get_assignee(self, obj) -> dict | None:
         return {'id': obj.assignee.id, 'username': obj.assignee.username} if obj.assignee else None
     
-    def get_project(self, obj):
+    def get_project(self, obj) -> dict:
         return {'id': obj.project.id, 'name': obj.project.name} if obj.project else None
     
-    def get_versions(self, obj):
+    def get_versions(self, obj) -> list:
         return [{'id': v.id, 'name': v.name, 'is_baseline': v.is_baseline} for v in obj.versions.all()]
 
 class TestCaseCreateSerializer(serializers.ModelSerializer):

@@ -3,10 +3,13 @@ from django.utils import timezone
 from apps.users.models import User
 from apps.projects.models import Project
 import json
+import re
 import httpx
 import asyncio
 from typing import Dict, Any, List, AsyncIterator
 import logging
+
+from apps.core.url_safety import validate_outbound_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +213,7 @@ class AIModelConfig(models.Model):
         ('writer', '测试用例编写专家'),
         ('reviewer', '测试评审专家'),
         ('browser_use_text', 'Browser Use - 文本模式'),
+        ('browser_use_vision', 'Browser Use - 视觉模式'),
     ]
 
     name = models.CharField(max_length=100, verbose_name='配置名称')
@@ -420,6 +424,18 @@ class AIModelService:
     """AI模型服务类"""
 
     @staticmethod
+    def build_chat_completions_url(base_url: str) -> str:
+        safe_base_url = validate_outbound_http_url(
+            base_url,
+            label='Requirement AI base URL',
+        ).rstrip('/')
+        if safe_base_url.endswith('/chat/completions'):
+            return safe_base_url
+        if re.search(r'/v(\d+)/?$', safe_base_url):
+            return f"{safe_base_url}/chat/completions"
+        return f"{safe_base_url}/v1/chat/completions"
+
+    @staticmethod
     async def call_openai_compatible_api(
             config: AIModelConfig,
             messages: List[Dict[str, str]],
@@ -453,22 +469,7 @@ class AIModelService:
             'stream': False
         }
 
-        # 确保base_url不以/结尾
-        base_url = config.base_url.rstrip('/')
-        # 如果用户没有输入完整的/chat/completions路径，尝试智能补全
-        if not base_url.endswith('/chat/completions'):
-            # 检查是否已经包含版本号（如v1, v4等）
-            import re
-            version_match = re.search(r'/v(\d+)/?$', base_url)
-            if version_match:
-                # 如果已经以版本号结尾（如/v1, /v4），直接添加/chat/completions
-                url = f"{base_url}/chat/completions"
-            else:
-                # 默认假设是根路径，尝试添加 v1/chat/completions
-                # 但对于某些API（如DeepSeek），base_url可能已经是 https://api.deepseek.com
-                url = f"{base_url}/v1/chat/completions"
-        else:
-            url = base_url
+        url = AIModelService.build_chat_completions_url(config.base_url)
 
         logger.info(f"=== API调用详情 ===")
         logger.info(f"原始base_url: {config.base_url}")
@@ -547,20 +548,7 @@ class AIModelService:
         # 使用传入的max_tokens或默认使用config.max_tokens
         actual_max_tokens = max_tokens if max_tokens is not None else config.max_tokens
 
-        # 确保base_url不以/结尾
-        base_url = config.base_url.rstrip('/')
-        if not base_url.endswith('/chat/completions'):
-            # 检查是否已经包含版本号（如v1, v4等）
-            import re
-            version_match = re.search(r'/v(\d+)/?$', base_url)
-            if version_match:
-                # 如果已经以版本号结尾（如/v1, /v4），直接添加/chat/completions
-                url = f"{base_url}/chat/completions"
-            else:
-                # 默认假设是根路径，尝试添加 v1/chat/completions
-                url = f"{base_url}/v1/chat/completions"
-        else:
-            url = base_url
+        url = AIModelService.build_chat_completions_url(config.base_url)
 
         # 续写控制
         current_messages = list(messages)  # 浅拷贝

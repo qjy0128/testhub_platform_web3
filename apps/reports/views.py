@@ -1,5 +1,6 @@
-from rest_framework import viewsets, permissions
+from rest_framework import serializers, viewsets, permissions
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from django.db.models import Count, Q, Sum, F, Avg
 from django.db.models.functions import TruncDate, Length
@@ -9,24 +10,69 @@ from .models import TestReport, ReportTemplate
 from apps.executions.models import TestPlan, TestRun, TestRunCase
 from apps.testcases.models import TestCase
 from apps.requirement_analysis.models import RequirementAnalysis, GeneratedTestCase, BusinessRequirement
+from apps.projects.unified import accessible_projects_for_user
+
+
+class TestReportSchemaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestReport
+        fields = '__all__'
+
 
 class TestReportViewSet(viewsets.ModelViewSet):
     """测试报告视图集"""
     queryset = TestReport.objects.all()
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TestReportSchemaSerializer
+
+    def get_queryset(self):
+        return TestReport.objects.filter(project__in=accessible_projects_for_user(self.request.user))
+
+    def _scoped_projects(self):
+        projects = accessible_projects_for_user(self.request.user)
+        project_id = self.request.query_params.get('project')
+        if not project_id:
+            return projects
+        try:
+            project_pk = int(project_id)
+        except (TypeError, ValueError):
+            raise ValidationError({'project': 'Project ID must be an integer.'})
+
+        scoped = projects.filter(id=project_pk)
+        if not scoped.exists():
+            raise PermissionDenied('You do not have access to the selected project.')
+        return scoped
+
+    def perform_create(self, serializer):
+        project = serializer.validated_data.get('project')
+        execution = serializer.validated_data.get('execution')
+        if project and not accessible_projects_for_user(self.request.user).filter(id=project.id).exists():
+            raise PermissionDenied('You do not have access to the selected project.')
+        if execution and not accessible_projects_for_user(self.request.user).filter(id=execution.project_id).exists():
+            raise PermissionDenied('You do not have access to the selected execution.')
+        if project and execution and project.id != execution.project_id:
+            raise ValidationError({'execution': 'Execution must belong to the selected project.'})
+        serializer.save(generated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        project = serializer.validated_data.get('project', getattr(serializer.instance, 'project', None))
+        execution = serializer.validated_data.get('execution', getattr(serializer.instance, 'execution', None))
+        if project and not accessible_projects_for_user(self.request.user).filter(id=project.id).exists():
+            raise PermissionDenied('You do not have access to the selected project.')
+        if execution and not accessible_projects_for_user(self.request.user).filter(id=execution.project_id).exists():
+            raise PermissionDenied('You do not have access to the selected execution.')
+        if project and execution and project.id != execution.project_id:
+            raise ValidationError({'execution': 'Execution must belong to the selected project.'})
+        serializer.save()
     
     @action(detail=False, methods=['get'])
     def dashboard(self, request):
         """获取概览数据"""
-        project_id = request.query_params.get('project')
+        projects = self._scoped_projects()
         
         # 基础查询集
-        plans_qs = TestPlan.objects.filter(is_active=True)
-        cases_qs = TestCase.objects.all()
-        
-        if project_id:
-            plans_qs = plans_qs.filter(projects__id=project_id)
-            cases_qs = cases_qs.filter(project_id=project_id)
+        plans_qs = TestPlan.objects.filter(is_active=True, projects__in=projects).distinct()
+        cases_qs = TestCase.objects.filter(project__in=projects)
             
         # 统计数据
         total_plans = plans_qs.count()
@@ -38,7 +84,7 @@ class TestReportViewSet(viewsets.ModelViewSet):
         plan_count_for_progress = 0
         
         for plan in plans_qs:
-            runs = plan.test_runs.all()
+            runs = plan.test_runs.filter(project__in=projects)
             if runs.exists():
                 # 计算该计划下所有Run的平均进度
                 run_progresses = [run.progress_stats['progress'] for run in runs]
@@ -49,7 +95,10 @@ class TestReportViewSet(viewsets.ModelViewSet):
         avg_plan_progress = round(total_progress / plan_count_for_progress, 1) if plan_count_for_progress > 0 else 0
         
         # 计算整体通过率
-        recent_runs = TestRun.objects.filter(test_plan__in=plans_qs).order_by('-created_at')[:10]
+        recent_runs = TestRun.objects.filter(
+            test_plan__in=plans_qs,
+            project__in=projects,
+        ).order_by('-created_at')[:10]
         total_executed = 0
         total_passed = 0
         
@@ -61,7 +110,7 @@ class TestReportViewSet(viewsets.ModelViewSet):
         pass_rate = round((total_passed / total_executed * 100), 1) if total_executed > 0 else 0
         
         # 统计缺陷总数 (基于 TestRunCase 的 defects 字段)
-        all_runs = TestRun.objects.filter(test_plan__in=plans_qs)
+        all_runs = TestRun.objects.filter(test_plan__in=plans_qs, project__in=projects)
         defects_count = 0
         for run in all_runs:
             run_cases_with_defects = run.run_cases.exclude(defects=[])
@@ -80,12 +129,10 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def status_distribution(self, request):
         """获取执行状态分布"""
-        project_id = request.query_params.get('project')
+        projects = self._scoped_projects()
         version_id = request.query_params.get('version')
         
-        runs_qs = TestRun.objects.all()
-        if project_id:
-            runs_qs = runs_qs.filter(project_id=project_id)
+        runs_qs = TestRun.objects.filter(project__in=projects)
         if version_id:
             runs_qs = runs_qs.filter(version_id=version_id)
             
@@ -103,11 +150,8 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def defect_distribution(self, request):
         """获取缺陷分布 (按优先级)"""
-        project_id = request.query_params.get('project')
-        qs = TestRunCase.objects.filter(status='failed')
-        
-        if project_id:
-            qs = qs.filter(test_run__project_id=project_id)
+        projects = self._scoped_projects()
+        qs = TestRunCase.objects.filter(status='failed', test_run__project__in=projects)
             
         distribution = qs.values('priority').annotate(count=Count('id'))
         
@@ -125,11 +169,8 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def failed_cases_top(self, request):
         """获取失败用例TOP榜"""
-        project_id = request.query_params.get('project')
-        
-        qs = TestRunCase.objects.filter(status='failed')
-        if project_id:
-            qs = qs.filter(test_run__project_id=project_id)
+        projects = self._scoped_projects()
+        qs = TestRunCase.objects.filter(status='failed', test_run__project__in=projects)
             
         # 按 testcase 分组统计失败次数
         top_failed = qs.values(
@@ -143,7 +184,7 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def execution_trend(self, request):
         """获取每日执行趋势"""
-        project_id = request.query_params.get('project')
+        projects = self._scoped_projects()
         days = int(request.query_params.get('days', 7))
         
         # 获取当前时区的今天开始时间
@@ -160,11 +201,9 @@ class TestReportViewSet(viewsets.ModelViewSet):
         
         qs = TestRunCase.objects.filter(
             executed_at__gte=start_datetime,
-            status__in=['passed', 'failed', 'blocked', 'retest']
+            status__in=['passed', 'failed', 'blocked', 'retest'],
+            test_run__project__in=projects,
         )
-        
-        if project_id:
-            qs = qs.filter(test_run__project_id=project_id)
             
         # 由于数据库聚合(TruncDate)在某些环境下返回None，改为Python内存聚合
         # 获取所有符合条件的记录的执行时间
@@ -195,16 +234,11 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def ai_efficiency(self, request):
         """获取AI效能分析"""
-        project_id = request.query_params.get('project')
+        projects = self._scoped_projects()
         
-        cases_qs = TestCase.objects.all()
-        generated_qs = GeneratedTestCase.objects.all()
-        requirements_qs = BusinessRequirement.objects.all()
-        
-        if project_id:
-            cases_qs = cases_qs.filter(project_id=project_id)
-            generated_qs = generated_qs.filter(requirement__analysis__document__project_id=project_id)
-            requirements_qs = requirements_qs.filter(analysis__document__project_id=project_id)
+        cases_qs = TestCase.objects.filter(project__in=projects)
+        generated_qs = GeneratedTestCase.objects.filter(requirement__analysis__document__project__in=projects)
+        requirements_qs = BusinessRequirement.objects.filter(analysis__document__project__in=projects)
             
         # 1. AI生成 vs 人工创建
         ai_count = generated_qs.count()
@@ -236,15 +270,13 @@ class TestReportViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def team_workload(self, request):
         """获取团队工作量"""
-        project_id = request.query_params.get('project')
+        projects = self._scoped_projects()
         
         qs = TestRunCase.objects.filter(
             status__in=['passed', 'failed', 'blocked', 'retest'],
-            executed_by__isnull=False
+            executed_by__isnull=False,
+            test_run__project__in=projects,
         )
-        
-        if project_id:
-            qs = qs.filter(test_run__project_id=project_id)
             
         # 统计执行数量
         execution_stats = qs.values(

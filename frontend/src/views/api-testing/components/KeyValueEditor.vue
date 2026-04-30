@@ -120,7 +120,7 @@
           <div style="height: 450px; overflow-y: auto; padding: 10px;">
             <el-table :data="category.variables" style="width: 100%" @row-click="insertVariable" highlight-current-row>
               <el-table-column prop="name" :label="$t('apiTesting.component.keyValueEditor.functionName')" width="150" show-overflow-tooltip>
-                <template #default="{ row }">
+                <template #default>
                   <el-tag size="small">{{ row.name }}</el-tag>
                 </template>
               </el-table-column>
@@ -128,7 +128,7 @@
               <el-table-column prop="syntax" :label="$t('apiTesting.component.keyValueEditor.syntax')" min-width="200" show-overflow-tooltip />
               <el-table-column prop="example" :label="$t('apiTesting.component.keyValueEditor.example')" min-width="200" show-overflow-tooltip />
               <el-table-column :label="$t('apiTesting.component.keyValueEditor.operation')" width="80" fixed="right">
-                <template #default="{ row }">
+                <template #default>
                   <el-button link type="primary" size="small">{{ $t('apiTesting.component.keyValueEditor.insert') }}</el-button>
                 </template>
               </el-table-column>

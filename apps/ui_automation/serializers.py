@@ -1,6 +1,10 @@
 from rest_framework import serializers
+from copy import deepcopy
 from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models
+from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_bots
+from typing import Any
 from .models import (
     UiProject, LocatorStrategy, Element, TestScript, TestSuite,
     TestSuiteScript, TestSuiteTestCase, TestExecution, TestEnvironment, Screenshot,
@@ -14,20 +18,120 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
+def _request_user(serializer):
+    request = serializer.context.get('request')
+    return getattr(request, 'user', None)
+
+
+def _is_ui_automation_admin(user):
+    return getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)
+
+
+def _accessible_ui_projects_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return UiProject.objects.none()
+    if _is_ui_automation_admin(user):
+        return UiProject.objects.all()
+
+    user_id = getattr(user, 'pk', None)
+    if user_id is None:
+        return UiProject.objects.none()
+    return UiProject.objects.filter(
+        models.Q(owner_id=user_id) | models.Q(members__id=user_id)
+    ).distinct()
+
+
+def _accessible_element_groups_for_user(user):
+    return ElementGroup.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_elements_for_user(user):
+    return Element.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_page_objects_for_user(user):
+    return PageObject.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_test_scripts_for_user(user):
+    return TestScript.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_test_suites_for_user(user):
+    return TestSuite.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_test_cases_for_user(user):
+    return TestCase.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_test_executions_for_user(user):
+    return TestExecution.objects.filter(project__in=_accessible_ui_projects_for_user(user))
+
+
+def _accessible_ai_cases_for_user(user):
+    return AICase.objects.filter(
+        models.Q(project__in=_accessible_ui_projects_for_user(user)) |
+        models.Q(project__isnull=True)
+    ).distinct()
+
+
+def _scope_related_queryset(serializer, field_name, queryset):
+    field = serializer.fields.get(field_name)
+    if field is not None and hasattr(field, 'queryset'):
+        field.queryset = queryset
+
+
+def _get_accessible_project_or_error(serializer, project_id):
+    user = _request_user(serializer)
+    try:
+        return _accessible_ui_projects_for_user(user).get(id=project_id)
+    except UiProject.DoesNotExist:
+        raise serializers.ValidationError("Project does not exist or is not accessible.")
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ('id', 'username', 'email')
+        ref_name = 'UiAutomationUser'
 
 
 class UiProjectSerializer(serializers.ModelSerializer):
     owner = UserSerializer(read_only=True)
     members = UserSerializer(many=True, read_only=True)
+    unified_projects = serializers.SerializerMethodField()
 
     class Meta:
         model = UiProject
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
+
+    def get_unified_projects(self, obj) -> list[dict[str, Any]]:
+        try:
+            from apps.projects.models import MetaProject, ProjectModuleBinding
+        except Exception:
+            return []
+        bindings = ProjectModuleBinding.objects.filter(
+            module=ProjectModuleBinding.MODULE_UI_AUTOMATION,
+            object_id=obj.id,
+        ).select_related('project')
+        rows = []
+        for binding in bindings:
+            meta_node = MetaProject.objects.filter(
+                project=binding.project,
+                module=ProjectModuleBinding.MODULE_UI_AUTOMATION,
+                object_id=obj.id,
+            ).first()
+            rows.append({
+                'binding_id': binding.id,
+                'project_id': binding.project_id,
+                'project_name': binding.project.name,
+                'meta_project_id': meta_node.id if meta_node else None,
+                'display_name': binding.display_name,
+                'is_primary': binding.is_primary,
+            })
+        return rows
 
 
 class UiProjectCreateSerializer(serializers.ModelSerializer):
@@ -63,10 +167,7 @@ class ElementSerializer(serializers.ModelSerializer):
 
     def validate_project_id(self, value):
         """验证项目ID是否有效"""
-        try:
-            UiProject.objects.get(id=value)
-        except UiProject.DoesNotExist:
-            raise serializers.ValidationError("请选择有效的项目")
+        _get_accessible_project_or_error(self, value)
         return value
 
     def validate_locator_strategy_id(self, value):
@@ -82,10 +183,22 @@ class ElementSerializer(serializers.ModelSerializer):
         """验证分组ID是否有效"""
         if value is not None:  # 允许None值
             try:
-                ElementGroup.objects.get(id=value)
+                _accessible_element_groups_for_user(_request_user(self)).get(id=value)
             except ElementGroup.DoesNotExist:
-                raise serializers.ValidationError("请选择有效的元素分组")
+                raise serializers.ValidationError("Element group does not exist or is not accessible.")
         return value
+
+    def validate(self, attrs):
+        project_id = attrs.get('project_id', getattr(self.instance, 'project_id', None))
+        group_id = attrs.get('group_id')
+        if project_id and group_id:
+            try:
+                group = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
+            except ElementGroup.DoesNotExist:
+                raise serializers.ValidationError({'group_id': 'Element group does not exist or is not accessible.'})
+            if group.project_id != project_id:
+                raise serializers.ValidationError({'group_id': 'Element group must belong to the selected project.'})
+        return attrs
 
     def create(self, validated_data):
         # 处理外键字段
@@ -93,13 +206,13 @@ class ElementSerializer(serializers.ModelSerializer):
         locator_strategy_id = validated_data.pop('locator_strategy_id', None)
         group_id = validated_data.pop('group_id', None)
 
-        validated_data['project'] = UiProject.objects.get(id=project_id)
+        validated_data['project'] = _get_accessible_project_or_error(self, project_id)
 
         if locator_strategy_id:
             validated_data['locator_strategy'] = LocatorStrategy.objects.get(id=locator_strategy_id)
 
         if group_id:
-            validated_data['group'] = ElementGroup.objects.get(id=group_id)
+            validated_data['group'] = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
 
         return super().create(validated_data)
 
@@ -110,14 +223,14 @@ class ElementSerializer(serializers.ModelSerializer):
         group_id = validated_data.pop('group_id', None)
 
         if project_id:
-            validated_data['project'] = UiProject.objects.get(id=project_id)
+            validated_data['project'] = _get_accessible_project_or_error(self, project_id)
 
         if locator_strategy_id:
             validated_data['locator_strategy'] = LocatorStrategy.objects.get(id=locator_strategy_id)
 
         if group_id is not None:  # 允许设置为None来清除分组
             if group_id:
-                validated_data['group'] = ElementGroup.objects.get(id=group_id)
+                validated_data['group'] = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
             else:
                 validated_data['group'] = None
 
@@ -138,6 +251,12 @@ class TestScriptCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestScript
         fields = ('project', 'name', 'description', 'script_type', 'content', 'language', 'framework')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
 
 
 class TestScriptUpdateSerializer(serializers.ModelSerializer):
@@ -163,7 +282,7 @@ class TestSuiteTestCaseSerializer(serializers.ModelSerializer):
         model = TestSuiteTestCase
         fields = ('id', 'test_case', 'test_case_id', 'order')
 
-    def get_test_case(self, obj):
+    def get_test_case(self, obj) -> dict[str, Any]:
         """获取测试用例信息"""
         test_case = obj.test_case
         return {
@@ -189,12 +308,13 @@ class TestSuiteSerializer(serializers.ModelSerializer):
         model = TestSuite
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'execution_status', 'passed_count', 'failed_count')
+        ref_name = 'UiAutomationTestSuite'
 
-    def get_test_cases_data(self, obj):
+    def get_test_cases_data(self, obj) -> list[dict[str, Any]]:
         """获取测试用例数据"""
         return TestSuiteTestCaseSerializer(obj.suite_test_cases.all(), many=True).data
 
-    def get_test_case_count(self, obj):
+    def get_test_case_count(self, obj) -> int:
         """获取测试用例数量"""
         return obj.suite_test_cases.count()
 
@@ -204,6 +324,12 @@ class TestSuiteCreateSerializer(serializers.ModelSerializer):
         model = TestSuite
         fields = ('id', 'project', 'name', 'description')
         read_only_fields = ('id',)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
 
 
 class TestSuiteUpdateSerializer(serializers.ModelSerializer):
@@ -243,16 +369,17 @@ class TestExecutionSerializer(serializers.ModelSerializer):
             'created_at', 'started_at', 'finished_at', 'duration',
             'total_cases', 'passed_cases', 'failed_cases', 'skipped_cases'
         )
+        ref_name = 'UiAutomationTestExecution'
 
-    def get_test_suite_name(self, obj):
+    def get_test_suite_name(self, obj) -> str:
         """获取测试套件名称"""
         return obj.test_suite.name if obj.test_suite else '-'
     
-    def get_executed_by_name(self, obj):
+    def get_executed_by_name(self, obj) -> str:
         """获取执行人姓名"""
         return obj.executed_by.username if obj.executed_by else '-'
 
-    def get_pass_rate(self, obj):
+    def get_pass_rate(self, obj) -> float:
         """获取通过率"""
         return obj.pass_rate
 
@@ -261,6 +388,24 @@ class TestExecutionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestExecution
         fields = ('project', 'test_suite', 'test_script', 'environment', 'executed_by')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
+            _scope_related_queryset(self, 'test_suite', _accessible_test_suites_for_user(user))
+            _scope_related_queryset(self, 'test_script', _accessible_test_scripts_for_user(user))
+
+    def validate(self, attrs):
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        test_suite = attrs.get('test_suite', getattr(self.instance, 'test_suite', None))
+        test_script = attrs.get('test_script', getattr(self.instance, 'test_script', None))
+        if project and test_suite and test_suite.project_id != project.id:
+            raise serializers.ValidationError({'test_suite': 'Test suite must belong to the selected project.'})
+        if project and test_script and test_script.project_id != project.id:
+            raise serializers.ValidationError({'test_script': 'Test script must belong to the selected project.'})
+        return attrs
 
 
 class ScreenshotSerializer(serializers.ModelSerializer):
@@ -271,6 +416,13 @@ class ScreenshotSerializer(serializers.ModelSerializer):
         model = Screenshot
         fields = '__all__'
         read_only_fields = ('created_at', 'captured_at')
+
+    def validate_execution_id(self, value):
+        try:
+            _accessible_test_executions_for_user(_request_user(self)).get(id=value)
+        except TestExecution.DoesNotExist:
+            raise serializers.ValidationError("Execution does not exist or is not accessible.")
+        return value
 
 
 # 新增的serializers
@@ -285,11 +437,11 @@ class ElementGroupSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
 
-    def get_elements_count(self, obj):
+    def get_elements_count(self, obj) -> int:
         """获取分组下的元素数量"""
         return obj.elements.count()
 
-    def get_children(self, obj):
+    def get_children(self, obj) -> list[dict[str, Any]]:
         """获取子分组"""
         children = obj.elementgroup_set.all()
         return ElementGroupSerializer(children, many=True, context=self.context).data
@@ -299,6 +451,21 @@ class ElementGroupCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElementGroup
         fields = ('project', 'name', 'description', 'parent_group', 'order')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            projects = _accessible_ui_projects_for_user(user)
+            _scope_related_queryset(self, 'project', projects)
+            _scope_related_queryset(self, 'parent_group', ElementGroup.objects.filter(project__in=projects))
+
+    def validate(self, attrs):
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        parent_group = attrs.get('parent_group', getattr(self.instance, 'parent_group', None))
+        if project and parent_group and parent_group.project_id != project.id:
+            raise serializers.ValidationError({'parent_group': 'Parent group must belong to the selected project.'})
+        return attrs
 
 
 class ElementEnhancedSerializer(serializers.ModelSerializer):
@@ -323,7 +490,7 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'created_by', 'usage_count', 'last_validated')
 
-    def get_parent_element(self, obj):
+    def get_parent_element(self, obj) -> dict[str, Any] | None:
         """获取父元素信息"""
         if obj.parent_element:
             return {
@@ -333,7 +500,7 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
             }
         return None
 
-    def get_children_elements(self, obj):
+    def get_children_elements(self, obj) -> list[dict[str, Any]]:
         """获取子元素"""
         children = obj.element_set.all()
         return [{
@@ -342,11 +509,11 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
             'element_type': child.element_type
         } for child in children]
 
-    def get_all_locators(self, obj):
+    def get_all_locators(self, obj) -> dict[str, Any]:
         """获取所有定位器（主要+备用）"""
         return obj.get_all_locators()
 
-    def get_usage_scripts(self, obj):
+    def get_usage_scripts(self, obj) -> list[dict[str, Any]]:
         """获取使用此元素的脚本列表"""
         usages = obj.script_usages.select_related('script').all()[:5]  # 只返回前5个
         return [{
@@ -356,6 +523,45 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
             'frequency': usage.frequency
         } for usage in usages]
 
+    def validate_project_id(self, value):
+        _get_accessible_project_or_error(self, value)
+        return value
+
+    def validate_group_id(self, value):
+        if value is not None:
+            try:
+                _accessible_element_groups_for_user(_request_user(self)).get(id=value)
+            except ElementGroup.DoesNotExist:
+                raise serializers.ValidationError("Element group does not exist or is not accessible.")
+        return value
+
+    def validate_parent_element_id(self, value):
+        if value is not None:
+            if self.instance and value == self.instance.id:
+                raise serializers.ValidationError("Element cannot be its own parent.")
+            try:
+                _accessible_elements_for_user(_request_user(self)).get(id=value)
+            except Element.DoesNotExist:
+                raise serializers.ValidationError("Parent element does not exist or is not accessible.")
+        return value
+
+    def validate(self, attrs):
+        project_id = attrs.get('project_id', getattr(self.instance, 'project_id', None))
+        group_id = attrs.get('group_id')
+        parent_element_id = attrs.get('parent_element_id')
+
+        if project_id and group_id:
+            group = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
+            if group.project_id != project_id:
+                raise serializers.ValidationError({'group_id': 'Element group must belong to the selected project.'})
+
+        if project_id and parent_element_id:
+            parent = _accessible_elements_for_user(_request_user(self)).get(id=parent_element_id)
+            if parent.project_id != project_id:
+                raise serializers.ValidationError({'parent_element_id': 'Parent element must belong to the selected project.'})
+
+        return attrs
+
     def create(self, validated_data):
         # 处理外键字段
         project_id = validated_data.pop('project_id')
@@ -363,14 +569,14 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
         group_id = validated_data.pop('group_id', None)
         parent_element_id = validated_data.pop('parent_element_id', None)
 
-        validated_data['project'] = UiProject.objects.get(id=project_id)
+        validated_data['project'] = _get_accessible_project_or_error(self, project_id)
         validated_data['locator_strategy'] = LocatorStrategy.objects.get(id=locator_strategy_id)
 
         if group_id:
-            validated_data['group'] = ElementGroup.objects.get(id=group_id)
+            validated_data['group'] = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
 
         if parent_element_id:
-            validated_data['parent_element'] = Element.objects.get(id=parent_element_id)
+            validated_data['parent_element'] = _accessible_elements_for_user(_request_user(self)).get(id=parent_element_id)
 
         return super().create(validated_data)
 
@@ -382,20 +588,20 @@ class ElementEnhancedSerializer(serializers.ModelSerializer):
         parent_element_id = validated_data.pop('parent_element_id', None)
 
         if project_id:
-            validated_data['project'] = UiProject.objects.get(id=project_id)
+            validated_data['project'] = _get_accessible_project_or_error(self, project_id)
 
         if locator_strategy_id:
             validated_data['locator_strategy'] = LocatorStrategy.objects.get(id=locator_strategy_id)
 
         if group_id is not None:  # 允许设置为None来清除分组
             if group_id:
-                validated_data['group'] = ElementGroup.objects.get(id=group_id)
+                validated_data['group'] = _accessible_element_groups_for_user(_request_user(self)).get(id=group_id)
             else:
                 validated_data['group'] = None
 
         if parent_element_id is not None:  # 允许设置为None来清除父元素
             if parent_element_id:
-                validated_data['parent_element'] = Element.objects.get(id=parent_element_id)
+                validated_data['parent_element'] = _accessible_elements_for_user(_request_user(self)).get(id=parent_element_id)
             else:
                 validated_data['parent_element'] = None
 
@@ -414,11 +620,11 @@ class PageObjectSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'created_by', 'template_code')
 
-    def get_elements_count(self, obj):
+    def get_elements_count(self, obj) -> int:
         """获取页面对象包含的元素数量"""
         return obj.page_object_elements.count()
 
-    def get_elements(self, obj):
+    def get_elements(self, obj) -> list[dict[str, Any]]:
         """获取页面对象包含的元素"""
         po_elements = obj.page_object_elements.select_related('element').all()
         return [{
@@ -435,6 +641,12 @@ class PageObjectCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = PageObject
         fields = ('project', 'name', 'class_name', 'url_pattern', 'description')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
@@ -459,6 +671,27 @@ class PageObjectElementSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("方法名称只能包含字母、数字和下划线，且不能以数字开头")
         return value
 
+    def validate_page_object_id(self, value):
+        try:
+            _accessible_page_objects_for_user(_request_user(self)).get(id=value)
+        except PageObject.DoesNotExist:
+            raise serializers.ValidationError("Page object does not exist or is not accessible.")
+        return value
+
+    def validate_element_id(self, value):
+        try:
+            _accessible_elements_for_user(_request_user(self)).get(id=value)
+        except Element.DoesNotExist:
+            raise serializers.ValidationError("Element does not exist or is not accessible.")
+        return value
+
+    def validate(self, attrs):
+        page_object = _accessible_page_objects_for_user(_request_user(self)).get(id=attrs['page_object_id'])
+        element = _accessible_elements_for_user(_request_user(self)).get(id=attrs['element_id'])
+        if element.project_id != page_object.project_id:
+            raise serializers.ValidationError({'element_id': 'Element must belong to the page object project.'})
+        return attrs
+
 
 class ScriptStepSerializer(serializers.ModelSerializer):
     script = TestScriptSerializer(read_only=True)
@@ -476,6 +709,7 @@ class ScriptStepSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """验证步骤配置"""
+        script_id = data.get('script_id')
         target_element_id = data.get('target_element_id')
         page_object_id = data.get('page_object_id')
         action_type = data.get('action_type')
@@ -483,6 +717,26 @@ class ScriptStepSerializer(serializers.ModelSerializer):
         # 某些操作类型需要指定目标元素
         if action_type in ['CLICK', 'INPUT', 'SELECT', 'HOVER', 'VERIFY'] and not target_element_id and not page_object_id:
             raise serializers.ValidationError("此操作类型需要指定目标元素或页面对象")
+
+        if script_id:
+            try:
+                script = _accessible_test_scripts_for_user(_request_user(self)).get(id=script_id)
+            except TestScript.DoesNotExist:
+                raise serializers.ValidationError({'script_id': 'Script does not exist or is not accessible.'})
+            if target_element_id:
+                try:
+                    target_element = _accessible_elements_for_user(_request_user(self)).get(id=target_element_id)
+                except Element.DoesNotExist:
+                    raise serializers.ValidationError({'target_element_id': 'Target element does not exist or is not accessible.'})
+                if target_element.project_id != script.project_id:
+                    raise serializers.ValidationError({'target_element_id': 'Target element must belong to the script project.'})
+            if page_object_id:
+                try:
+                    page_object = _accessible_page_objects_for_user(_request_user(self)).get(id=page_object_id)
+                except PageObject.DoesNotExist:
+                    raise serializers.ValidationError({'page_object_id': 'Page object does not exist or is not accessible.'})
+                if page_object.project_id != script.project_id:
+                    raise serializers.ValidationError({'page_object_id': 'Page object must belong to the script project.'})
 
         return data
 
@@ -497,6 +751,19 @@ class ScriptElementUsageSerializer(serializers.ModelSerializer):
         model = ScriptElementUsage
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
+
+    def validate(self, attrs):
+        try:
+            script = _accessible_test_scripts_for_user(_request_user(self)).get(id=attrs['script_id'])
+        except TestScript.DoesNotExist:
+            raise serializers.ValidationError({'script_id': 'Script does not exist or is not accessible.'})
+        try:
+            element = _accessible_elements_for_user(_request_user(self)).get(id=attrs['element_id'])
+        except Element.DoesNotExist:
+            raise serializers.ValidationError({'element_id': 'Element does not exist or is not accessible.'})
+        if element.project_id != script.project_id:
+            raise serializers.ValidationError({'element_id': 'Element must belong to the script project.'})
+        return attrs
 
 
 class ScriptAnalysisSerializer(serializers.Serializer):
@@ -536,6 +803,13 @@ class TestCaseStepSerializer(serializers.ModelSerializer):
             'id', 'step_number', 'action_type', 'element', 'element_name', 'element_locator',
             'input_value', 'wait_time', 'assert_type', 'assert_value', 'description', 'created_at'
         ]
+        ref_name = 'UiAutomationTestCaseStep'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'element', _accessible_elements_for_user(user))
 
 
 class TestCaseSerializer(serializers.ModelSerializer):
@@ -551,6 +825,13 @@ class TestCaseSerializer(serializers.ModelSerializer):
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'steps'
         ]
         read_only_fields = ['created_by']
+        ref_name = 'UiAutomationTestCase'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
@@ -574,12 +855,30 @@ class TestCaseExecutionSerializer(serializers.ModelSerializer):
             'created_by', 'created_by_name', 'created_at'
         ]
         read_only_fields = ['created_by']
-    
-    def get_test_suite_name(self, obj):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
+            _scope_related_queryset(self, 'test_case', _accessible_test_cases_for_user(user))
+            _scope_related_queryset(self, 'test_suite', _accessible_test_suites_for_user(user))
+
+    def validate(self, attrs):
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        test_case = attrs.get('test_case', getattr(self.instance, 'test_case', None))
+        test_suite = attrs.get('test_suite', getattr(self.instance, 'test_suite', None))
+        if project and test_case and test_case.project_id != project.id:
+            raise serializers.ValidationError({'test_case': 'Test case must belong to the selected project.'})
+        if project and test_suite and test_suite.project_id != project.id:
+            raise serializers.ValidationError({'test_suite': 'Test suite must belong to the selected project.'})
+        return attrs
+
+    def get_test_suite_name(self, obj) -> str | None:
         """获取测试套件名称"""
         return obj.test_suite.name if obj.test_suite else None
     
-    def get_created_by_name(self, obj):
+    def get_created_by_name(self, obj) -> str:
         """获取创建人姓名"""
         return obj.created_by.username if obj.created_by else '-'
 
@@ -596,17 +895,20 @@ class TestCaseRunSerializer(serializers.Serializer):
 
     def validate_test_case_id(self, value):
         try:
-            TestCase.objects.get(id=value)
+            _accessible_test_cases_for_user(_request_user(self)).get(id=value)
         except TestCase.DoesNotExist:
             raise serializers.ValidationError("测试用例不存在")
         return value
 
     def validate_project_id(self, value):
-        try:
-            UiProject.objects.get(id=value)
-        except UiProject.DoesNotExist:
-            raise serializers.ValidationError("项目不存在")
+        _get_accessible_project_or_error(self, value)
         return value
+
+    def validate(self, attrs):
+        test_case = _accessible_test_cases_for_user(_request_user(self)).get(id=attrs['test_case_id'])
+        if test_case.project_id != attrs['project_id']:
+            raise serializers.ValidationError({'test_case_id': 'Test case must belong to the selected project.'})
+        return attrs
 
 
 class OperationRecordSerializer(serializers.ModelSerializer):
@@ -657,7 +959,14 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
             'error_message', 'created_at', 'updated_at'
         ]
 
-    def get_notification_type_display(self, obj):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_ui_projects_for_user(user))
+            _scope_related_queryset(self, 'test_suite', _accessible_test_suites_for_user(user))
+
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示"""
         if obj.notification_type:
             return obj.get_notification_type_display()
@@ -665,32 +974,51 @@ class UiScheduledTaskSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """验证定时任务配置"""
-        trigger_type = attrs.get('trigger_type')
+        trigger_type = attrs.get('trigger_type', getattr(self.instance, 'trigger_type', None))
 
         if trigger_type == 'CRON':
-            if not attrs.get('cron_expression'):
+            cron_expression = attrs.get('cron_expression', getattr(self.instance, 'cron_expression', None))
+            if not cron_expression:
                 raise serializers.ValidationError("Cron表达式不能为空")
 
         elif trigger_type == 'INTERVAL':
-            if not attrs.get('interval_seconds'):
+            interval_seconds = attrs.get('interval_seconds', getattr(self.instance, 'interval_seconds', None))
+            if not interval_seconds:
                 raise serializers.ValidationError("间隔秒数不能为空")
-            if attrs['interval_seconds'] < 60:
+            if interval_seconds < 60:
                 raise serializers.ValidationError("间隔秒数不能小于60秒")
 
         elif trigger_type == 'ONCE':
-            if not attrs.get('execute_at'):
+            execute_at = attrs.get('execute_at', getattr(self.instance, 'execute_at', None))
+            if not execute_at:
                 raise serializers.ValidationError("执行时间不能为空")
-            if attrs['execute_at'] <= timezone.now():
+            if execute_at <= timezone.now():
                 raise serializers.ValidationError("执行时间必须大于当前时间")
 
         # 验证任务类型配置
-        task_type = attrs.get('task_type')
-        if task_type == 'TEST_SUITE' and not attrs.get('test_suite'):
+        task_type = attrs.get('task_type', getattr(self.instance, 'task_type', None))
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        test_suite = attrs.get('test_suite', getattr(self.instance, 'test_suite', None))
+
+        if task_type == 'TEST_SUITE' and not test_suite:
             raise serializers.ValidationError("测试套件不能为空")
-        elif task_type == 'TEST_CASE':
-            test_cases = attrs.get('test_cases', [])
+        if project and test_suite and test_suite.project_id != project.id:
+            raise serializers.ValidationError({'test_suite': 'Test suite must belong to the selected project.'})
+
+        if task_type == 'TEST_CASE':
+            test_cases = attrs.get('test_cases', getattr(self.instance, 'test_cases', []))
             if not test_cases or len(test_cases) == 0:
                 raise serializers.ValidationError("至少选择一个测试用例")
+            try:
+                test_case_ids = [int(case_id) for case_id in test_cases]
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({'test_cases': 'Test case ids must be integers.'})
+            allowed_cases = _accessible_test_cases_for_user(_request_user(self))
+            if project:
+                allowed_cases = allowed_cases.filter(project=project)
+            found_ids = set(allowed_cases.filter(id__in=test_case_ids).values_list('id', flat=True))
+            if found_ids != set(test_case_ids):
+                raise serializers.ValidationError({'test_cases': 'One or more test cases are not accessible in the selected project.'})
 
         return attrs
 
@@ -809,9 +1137,23 @@ class AICaseSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at', 'created_by')
 
+    def validate_project_id(self, value):
+        if value is not None:
+            _get_accessible_project_or_error(self, value)
+        return value
+
     def create(self, validated_data):
+        project_id = validated_data.pop('project_id', None)
+        if project_id is not None:
+            validated_data['project'] = _get_accessible_project_or_error(self, project_id)
         validated_data['created_by'] = self.context['request'].user
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        project_id = validated_data.pop('project_id', None)
+        if project_id is not None:
+            validated_data['project'] = _get_accessible_project_or_error(self, project_id)
+        return super().update(instance, validated_data)
 
 
 class WalletBrowserConfigSerializer(serializers.ModelSerializer):
@@ -863,6 +1205,47 @@ class AIExecutionRecordSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ('start_time', 'end_time', 'duration', 'executed_by', 'gif_path', 'screenshots_sequence')
 
+    def validate_project_id(self, value):
+        _get_accessible_project_or_error(self, value)
+        return value
+
+    def validate_ai_case_id(self, value):
+        if value is not None:
+            try:
+                _accessible_ai_cases_for_user(_request_user(self)).get(id=value)
+            except AICase.DoesNotExist:
+                raise serializers.ValidationError("AI case does not exist or is not accessible.")
+        return value
+
+    def validate(self, attrs):
+        project_id = attrs.get('project_id', getattr(self.instance, 'project_id', None))
+        ai_case_id = attrs.get('ai_case_id')
+        if project_id and ai_case_id:
+            ai_case = _accessible_ai_cases_for_user(_request_user(self)).get(id=ai_case_id)
+            if ai_case.project_id and ai_case.project_id != project_id:
+                raise serializers.ValidationError({'ai_case_id': 'AI case must belong to the selected project.'})
+        return attrs
+
+    def create(self, validated_data):
+        project_id = validated_data.pop('project_id')
+        ai_case_id = validated_data.pop('ai_case_id', None)
+        validated_data['project'] = _get_accessible_project_or_error(self, project_id)
+        if ai_case_id is not None:
+            validated_data['ai_case'] = _accessible_ai_cases_for_user(_request_user(self)).get(id=ai_case_id)
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            validated_data['executed_by'] = request.user
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        project_id = validated_data.pop('project_id', None)
+        ai_case_id = validated_data.pop('ai_case_id', None)
+        if project_id is not None:
+            validated_data['project'] = _get_accessible_project_or_error(self, project_id)
+        if ai_case_id is not None:
+            validated_data['ai_case'] = _accessible_ai_cases_for_user(_request_user(self)).get(id=ai_case_id)
+        return super().update(instance, validated_data)
+
 
 
 class UiNotificationLogSerializer(serializers.ModelSerializer):
@@ -886,15 +1269,15 @@ class UiNotificationLogSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'sent_at']
 
-    def get_recipient_names(self, obj):
+    def get_recipient_names(self, obj) -> str:
         """获取收件人姓名列表"""
         return obj.get_recipient_names()
 
-    def get_retry_status(self, obj):
+    def get_retry_status(self, obj) -> str:
         """获取重试状态"""
         return obj.get_retry_status()
 
-    def get_task_type_display(self, obj):
+    def get_task_type_display(self, obj) -> str:
         """获取任务类型显示 - 使用保存的快照值"""
         if obj.task_type:
             # 使用保存的任务类型快照
@@ -903,7 +1286,7 @@ class UiNotificationLogSerializer(serializers.ModelSerializer):
         # 如果 task_type 为空，返回未记录，不要从 task 对象获取（避免显示修改后的值）
         return '未记录'
 
-    def get_actual_notification_type_display(self, obj):
+    def get_actual_notification_type_display(self, obj) -> str:
         """获取实际的通知类型显示 - 根据实际发送的通知来判断"""
         # 优先检查webhook_bot_info,如果存在则说明是webhook通知
         if obj.webhook_bot_info:
@@ -941,6 +1324,7 @@ class UiTaskNotificationSettingSerializer(serializers.ModelSerializer):
     notification_type_display = serializers.CharField(source='get_notification_type_display', read_only=True)
     notification_config_name = serializers.CharField(source='notification_config.name', read_only=True)
     active_types = serializers.SerializerMethodField()
+    webhook_bots_display = serializers.SerializerMethodField()
 
     class Meta:
         model = UiTaskNotificationSetting
@@ -948,12 +1332,15 @@ class UiTaskNotificationSettingSerializer(serializers.ModelSerializer):
             'id', 'task', 'notification_type', 'notification_type_display',
             'notification_config', 'notification_config_name', 'is_enabled',
             'notify_on_success', 'notify_on_failure', 'notify_on_timeout',
-            'notify_on_error', 'custom_webhook_bots', 'active_types',
+            'notify_on_error', 'custom_webhook_bots', 'webhook_bots_display', 'active_types',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at', 'webhook_bots_display']
+        extra_kwargs = {
+            'custom_webhook_bots': {'write_only': True, 'required': False, 'allow_null': True},
+        }
 
-    def get_active_types(self, obj):
+    def get_active_types(self, obj) -> str:
         """获取激活的通知类型"""
         types = obj.get_active_notification_types()
         type_names = []
@@ -963,3 +1350,73 @@ class UiTaskNotificationSettingSerializer(serializers.ModelSerializer):
             type_names.append('Webhook机器人')
         return ', '.join(type_names) if type_names else "无"
 
+    def _bot_display(self, bot, source):
+        return {
+            'type': bot.get('type'),
+            'name': bot.get('name'),
+            'webhook_url': redact_webhook_url(bot.get('webhook_url')),
+            'has_secret': bool(bot.get('secret')),
+            'enabled': bot.get('enabled'),
+            'enable_ui_automation': bot.get('enable_ui_automation'),
+            'enable_api_testing': bot.get('enable_api_testing'),
+            'source': source,
+        }
+
+    def get_webhook_bots_display(self, obj) -> list:
+        display_list = []
+
+        notification_config = obj.get_notification_config() if hasattr(obj, 'get_notification_config') else None
+        if notification_config:
+            for bot in notification_config.get_webhook_bots():
+                display_list.append(self._bot_display(bot, 'notification_config'))
+
+        for bot_type, bot_config in (obj.custom_webhook_bots or {}).items():
+            if not isinstance(bot_config, dict):
+                continue
+            display_list.append(self._bot_display({'type': bot_type, **bot_config}, 'custom'))
+
+        return display_list
+
+    def _without_masked_credentials(self, webhook_bots):
+        if not isinstance(webhook_bots, dict):
+            return webhook_bots
+
+        cleaned_bots = deepcopy(webhook_bots)
+        for bot_config in cleaned_bots.values():
+            if not isinstance(bot_config, dict):
+                continue
+            for field in ('webhook_url', 'secret'):
+                value = bot_config.get(field)
+                if isinstance(value, str) and ('***' in value or not value.strip()):
+                    bot_config.pop(field, None)
+        return cleaned_bots
+
+    def validate_custom_webhook_bots(self, value):
+        try:
+            return validate_notification_webhook_bots(self._without_masked_credentials(value))
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
+    def _merge_custom_webhook_bots(self, instance, webhook_bots):
+        if webhook_bots is None or not isinstance(webhook_bots, dict):
+            return webhook_bots
+
+        merged_bots = deepcopy(instance.custom_webhook_bots or {})
+        for bot_type, bot_config in webhook_bots.items():
+            if not isinstance(bot_config, dict):
+                merged_bots[bot_type] = bot_config
+                continue
+
+            existing_config = dict(merged_bots.get(bot_type) or {})
+            cleaned_config = self._without_masked_credentials({bot_type: bot_config}).get(bot_type, {})
+            existing_config.update(cleaned_config)
+            merged_bots[bot_type] = existing_config
+        return merged_bots
+
+    def update(self, instance, validated_data):
+        if 'custom_webhook_bots' in validated_data:
+            validated_data['custom_webhook_bots'] = self._merge_custom_webhook_bots(
+                instance,
+                validated_data['custom_webhook_bots'],
+            )
+        return super().update(instance, validated_data)

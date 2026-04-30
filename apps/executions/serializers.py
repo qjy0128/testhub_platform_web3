@@ -35,7 +35,7 @@ class TestRunSerializer(serializers.ModelSerializer):
         model = TestRun
         fields = ('id', 'name', 'status', 'assignee', 'progress', 'run_cases')
     
-    def get_progress(self, obj):
+    def get_progress(self, obj) -> dict:
         return obj.progress_stats
 
 

@@ -2,8 +2,14 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
-export default defineConfig({
+const normalizeModuleId = (id) => id.replace(/\\/g, '/')
+
+export default defineConfig(({ mode }) => ({
   plugins: [vue()],
+  esbuild: {
+    drop: mode === 'production' ? ['debugger'] : [],
+    pure: mode === 'production' ? ['console.log', 'console.debug'] : [],
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -22,10 +28,50 @@ export default defineConfig({
       target: 'es2022'
     },
     force: true,
-    exclude: ['tree-sitter'],
   },
   build: {
     target: 'es2022',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return undefined
+          }
+
+          const moduleId = normalizeModuleId(id)
+
+          if (moduleId.includes('/node_modules/@vue/') || moduleId.includes('/node_modules/vue/') || moduleId.includes('/node_modules/vue-router/') || moduleId.includes('/node_modules/pinia/')) {
+            return 'vendor-vue'
+          }
+          if (moduleId.includes('/node_modules/element-plus/')) {
+            return 'element-plus'
+          }
+          if (moduleId.includes('/node_modules/@element-plus/icons-vue/')) {
+            return 'element-icons'
+          }
+          if (moduleId.includes('/node_modules/echarts/')) {
+            return 'echarts'
+          }
+          if (moduleId.includes('/node_modules/zrender/')) {
+            return 'zrender'
+          }
+          if (moduleId.includes('/node_modules/xlsx/')) {
+            return 'xlsx'
+          }
+          if (moduleId.includes('/node_modules/monaco-editor/')) {
+            return 'monaco-editor'
+          }
+          if (moduleId.includes('/node_modules/vuedraggable/')) {
+            return 'vuedraggable'
+          }
+          if (moduleId.includes('/node_modules/axios/') || moduleId.includes('/node_modules/dayjs/') || moduleId.includes('/node_modules/lodash-es/')) {
+            return 'vendor-utils'
+          }
+
+          return 'vendor'
+        }
+      }
+    },
   },
   server: {
     port: 3000,
@@ -70,4 +116,4 @@ export default defineConfig({
     },
   },
   assetsInclude: ['**/*.wasm'],
-})
+}))

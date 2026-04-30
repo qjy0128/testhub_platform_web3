@@ -1,8 +1,9 @@
-from rest_framework import viewsets, permissions, status
+from rest_framework import serializers, viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import render
 import requests
+from apps.core.url_safety import validate_outbound_http_url
 from .models import AssistantSession, AssistantMessage, ChatMessage, DifyConfig
 from .serializers import (
     AssistantSessionSerializer, 
@@ -22,6 +23,8 @@ class AssistantSessionViewSet(viewsets.ModelViewSet):
         return AssistantSessionSerializer
     
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AssistantSession.objects.none()
         return AssistantSession.objects.filter(user=self.request.user)
     
     def perform_create(self, serializer):
@@ -47,9 +50,14 @@ class AssistantSessionViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+class ChatSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class ChatViewSet(viewsets.ViewSet):
     """聊天功能ViewSet"""
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChatSchemaSerializer
     
     @action(detail=False, methods=['post'])
     def send_message(self, request):
@@ -110,7 +118,11 @@ class ChatViewSet(viewsets.ViewSet):
                 payload['conversation_id'] = session.conversation_id
             
             # 去除URL末尾的斜杠
-            api_url = dify_config.api_url.rstrip('/')
+            # Validate at call time as well, so historical unsafe configs cannot be used.
+            api_url = validate_outbound_http_url(
+                dify_config.api_url,
+                label='Dify API URL'
+            ).rstrip('/')
             
             response = requests.post(
                 f'{api_url}/chat-messages',
@@ -155,6 +167,10 @@ class ChatViewSet(viewsets.ViewSet):
             return Response({
                 'error': f'API请求失败: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except ValueError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 def assistant_view(request):

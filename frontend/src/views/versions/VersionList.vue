@@ -100,8 +100,9 @@
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column :label="$t('project.actions')" width="150" fixed="right">
+        <el-table-column :label="$t('project.actions')" width="220" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" @click="openTraceability(row)">Trace</el-button>
             <el-button size="small" @click="editVersion(row)">{{ $t('common.edit') }}</el-button>
             <el-button size="small" type="danger" @click="deleteVersion(row)">{{ $t('common.delete') }}</el-button>
           </template>
@@ -166,6 +167,66 @@
         <el-button type="primary" @click="saveVersion" :loading="saving">{{ $t('common.save') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="traceDrawerVisible" size="720px" title="Version Traceability">
+      <div v-loading="traceLoading" class="traceability-panel">
+        <template v-if="traceability">
+          <div class="trace-head">
+            <div>
+              <h2>{{ traceability.version?.name }}</h2>
+              <p>{{ traceability.version?.description || 'No description' }}</p>
+            </div>
+            <el-tag v-if="traceability.version?.is_baseline" type="warning">Baseline</el-tag>
+          </div>
+          <div class="trace-metrics">
+            <div v-for="item in traceMetrics" :key="item.key" class="trace-metric">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div class="trace-section">
+            <h3>Test Case Breakdown</h3>
+            <div class="breakdown-grid">
+              <div v-for="group in breakdownGroups" :key="group.key" class="breakdown-card">
+                <strong>{{ group.label }}</strong>
+                <div v-for="item in group.items" :key="item.name" class="breakdown-row">
+                  <span>{{ item.name }}</span>
+                  <b>{{ item.value }}</b>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="trace-section">
+            <h3>Suites</h3>
+            <el-table :data="traceability.suites || []" size="small">
+              <el-table-column prop="name" label="Suite" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="project_name" label="Project" min-width="140" show-overflow-tooltip />
+              <el-table-column prop="testcase_count" label="Cases" width="90" />
+            </el-table>
+          </div>
+          <div class="trace-section">
+            <h3>Recent Runs</h3>
+            <el-table :data="traceability.recent_runs || []" size="small">
+              <el-table-column prop="name" label="Run" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="status" label="Status" width="120" />
+              <el-table-column label="Completed" width="160">
+                <template #default="{ row }">{{ formatDate(row.completed_at || row.started_at) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div class="trace-section">
+            <h3>Reports</h3>
+            <el-table :data="traceability.reports || []" size="small">
+              <el-table-column prop="title" label="Report" min-width="180" show-overflow-tooltip />
+              <el-table-column prop="execution_name" label="Execution" min-width="160" show-overflow-tooltip />
+              <el-table-column label="Created" width="160">
+                <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </template>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -195,6 +256,9 @@ const versionFormRef = ref()
 const saving = ref(false)
 const isEdit = ref(false)
 const editingVersionId = ref(null)
+const traceDrawerVisible = ref(false)
+const traceLoading = ref(false)
+const traceability = ref(null)
 
 const versionForm = reactive({
   name: '',
@@ -207,6 +271,31 @@ const versionRules = {
   name: [{ required: true, message: computed(() => t('version.versionNameRequired')), trigger: 'blur' }],
   project_ids: [{ required: true, message: computed(() => t('version.projectRequired')), trigger: 'change' }]
 }
+
+const traceMetrics = computed(() => {
+  const counts = traceability.value?.counts || {}
+  return [
+    { key: 'testcases', label: 'Test Cases', value: counts.testcases || 0 },
+    { key: 'suites', label: 'Suites', value: counts.suites || 0 },
+    { key: 'plans', label: 'Plans', value: counts.plans || 0 },
+    { key: 'runs', label: 'Runs', value: counts.runs || 0 },
+    { key: 'reports', label: 'Reports', value: counts.reports || 0 }
+  ]
+})
+
+const toBreakdownItems = (payload) => {
+  return Object.entries(payload || {}).map(([name, value]) => ({ name, value }))
+}
+
+const breakdownGroups = computed(() => {
+  const breakdowns = traceability.value?.breakdowns || {}
+  return [
+    { key: 'status', label: 'Status', items: toBreakdownItems(breakdowns.status) },
+    { key: 'priority', label: 'Priority', items: toBreakdownItems(breakdowns.priority) },
+    { key: 'test_type', label: 'Type', items: toBreakdownItems(breakdowns.test_type) },
+    { key: 'run_status', label: 'Run Status', items: toBreakdownItems(breakdowns.run_status) }
+  ]
+})
 
 const fetchVersions = async () => {
   loading.value = true
@@ -266,6 +355,20 @@ const editVersion = (version) => {
   versionForm.is_baseline = version.is_baseline
   
   versionDialogVisible.value = true
+}
+
+const openTraceability = async (version) => {
+  traceDrawerVisible.value = true
+  traceLoading.value = true
+  traceability.value = null
+  try {
+    const response = await api.get(`/versions/${version.id}/traceability/`)
+    traceability.value = response.data
+  } catch (error) {
+    ElMessage.error('Failed to load version traceability')
+  } finally {
+    traceLoading.value = false
+  }
 }
 
 const saveVersion = async () => {
@@ -389,6 +492,9 @@ const resetVersionForm = () => {
 }
 
 const formatDate = (dateString) => {
+  if (!dateString) {
+    return '--'
+  }
   return dayjs(dateString).format('YYYY-MM-DD HH:mm')
 }
 
@@ -442,5 +548,86 @@ onMounted(() => {
   color: #909399;
   font-size: 12px;
   font-style: italic;
+}
+
+.traceability-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.trace-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h2 {
+    margin: 0 0 6px;
+    color: var(--el-text-color-primary);
+  }
+
+  p {
+    margin: 0;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.trace-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trace-metric,
+.breakdown-card {
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-lighter);
+}
+
+.trace-metric span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.trace-metric strong {
+  color: var(--el-text-color-primary);
+  font-size: 20px;
+}
+
+.trace-section h3 {
+  margin: 0 0 10px;
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+}
+
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.breakdown-card strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .trace-metrics,
+  .breakdown-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

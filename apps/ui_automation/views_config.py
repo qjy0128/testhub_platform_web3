@@ -1,8 +1,10 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 from rest_framework import serializers
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 import asyncio
 import shutil
 import subprocess
@@ -28,12 +30,19 @@ def run_wallet_runtime_preflight(wallet_context):
 
     return asyncio.run(probe_metamask_wallet_runtime(wallet_context))
 
+
+class EnvironmentConfigSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class EnvironmentConfigViewSet(viewsets.ViewSet):
     """
     UI自动化环境配置视图集
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    serializer_class = EnvironmentConfigSchemaSerializer
 
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=False, methods=['get'])
     def check_environment(self, request):
         """
@@ -213,16 +222,54 @@ class EnvironmentConfigViewSet(viewsets.ViewSet):
 
 
 import requests
+from apps.core.url_safety import validate_outbound_http_url
 from apps.requirement_analysis.models import AIModelConfig
 from .models import WalletBrowserConfig
 from .serializers import WalletBrowserConfigSerializer
+
+BROWSER_MODEL_ROLES = ('browser_use_text', 'browser_use_vision')
+DEFAULT_BROWSER_MODEL_ROLE = 'browser_use_text'
+
+
+class AIIntelligentModeConfigSchemaSerializer(serializers.Serializer):
+    pass
+
 
 class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
     """
     AI智能模式配置视图集 (Browser-use) - 使用ModelViewSet支持标准CRUD
     """
-    permission_classes = [IsAuthenticated]
-    queryset = AIModelConfig.objects.filter(role='browser_use_text')
+    permission_classes = [IsAdminUser]
+    serializer_class = AIIntelligentModeConfigSchemaSerializer
+    queryset = AIModelConfig.objects.filter(role__in=BROWSER_MODEL_ROLES)
+
+    def get_queryset(self):
+        return AIModelConfig.objects.filter(role__in=BROWSER_MODEL_ROLES)
+
+    @staticmethod
+    def _normalize_role(role):
+        normalized_role = (role or DEFAULT_BROWSER_MODEL_ROLE).strip()
+        if normalized_role not in BROWSER_MODEL_ROLES:
+            return None
+        return normalized_role
+
+    @staticmethod
+    def _serialize_config(config, include_key_length=False):
+        data = {
+            'id': config.id,
+            'name': config.name,
+            'model_type': config.model_type,
+            'role': config.role,
+            'role_display': config.get_role_display(),
+            'model_name': config.model_name,
+            'base_url': config.base_url,
+            'is_active': config.is_active,
+            'created_at': config.created_at,
+            'updated_at': config.updated_at,
+        }
+        if include_key_length:
+            data['api_key_length'] = len(config.api_key) if config.api_key else 0
+        return data
 
     @staticmethod
     def _default_model_base_url(provider):
@@ -233,6 +280,13 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             'anthropic': 'https://api.anthropic.com',
         }
         return defaults.get(provider, '')
+
+    def _resolve_and_validate_model_base_url(self, provider, base_url):
+        resolved_base_url = (base_url or '').strip() or self._default_model_base_url(provider)
+        if not resolved_base_url:
+            raise ValueError('Base URL is required for this provider')
+        validate_outbound_http_url(resolved_base_url, label='AI model base URL')
+        return resolved_base_url
 
     @staticmethod
     def _build_chat_completions_url(base_url):
@@ -251,10 +305,11 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         return f"{normalized_base_url}/v1/chat/completions"
 
     def _perform_model_connection_test(self, *, provider, base_url, api_key, model_name):
-        resolved_base_url = (base_url or '').strip() or self._default_model_base_url(provider)
-        if not resolved_base_url:
+        try:
+            resolved_base_url = self._resolve_and_validate_model_base_url(provider, base_url)
+        except ValueError as exc:
             return Response(
-                {'error': 'Base URL is required for this provider'},
+                {'error': str(exc)},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -299,11 +354,13 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         """
         获取所有AI智能模式配置列表
         """
-        configs = self.queryset.order_by('-created_at')
+        configs = self.get_queryset().order_by('role', '-created_at')
         serializer_data = [{
             'id': config.id,
             'name': config.name,
             'model_type': config.model_type,
+            'role': config.role,
+            'role_display': config.get_role_display(),
             'model_name': config.model_name,
             'base_url': config.base_url,
             'is_active': config.is_active,
@@ -330,14 +387,28 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                 )
 
         # 如果创建时启用，先禁用其他所有配置
+        role = self._normalize_role(data.get('role'))
+        if role is None:
+            return Response(
+                {'error': 'role must be browser_use_text or browser_use_vision'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            self._resolve_and_validate_model_base_url(data.get('model_type'), data.get('base_url'))
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        disabled_config_names = []
         if data.get('is_active', True):
-            self.queryset.filter(is_active=True).update(is_active=False)
+            active_configs = self.get_queryset().filter(role=role, is_active=True)
+            disabled_config_names = [c.name for c in active_configs]
+            active_configs.update(is_active=False)
 
         # 创建新配置
         config = AIModelConfig.objects.create(
             name=data['name'],
             model_type=data['model_type'],
-            role='browser_use_text',
+            role=role,
             model_name=data['model_name'],
             api_key=data['api_key'],
             base_url=data.get('base_url', ''),
@@ -345,32 +416,18 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             created_by=user
         )
 
-        return Response({
-            'id': config.id,
-            'name': config.name,
-            'model_type': config.model_type,
-            'model_name': config.model_name,
-            'base_url': config.base_url,
-            'is_active': config.is_active,
-            'created_at': config.created_at
-        }, status=status.HTTP_201_CREATED)
+        response_data = self._serialize_config(config)
+        if disabled_config_names:
+            response_data['disabled_configs'] = disabled_config_names
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, pk=None):
         """
         获取单个配置详情
         """
         try:
-            config = self.queryset.get(pk=pk)
-            return Response({
-                'id': config.id,
-                'name': config.name,
-                'model_type': config.model_type,
-                'model_name': config.model_name,
-                'base_url': config.base_url,
-                'is_active': config.is_active,
-                'created_at': config.created_at,
-                'updated_at': config.updated_at
-            })
+            config = self.get_queryset().get(pk=pk)
+            return Response(self._serialize_config(config))
         except AIModelConfig.DoesNotExist:
             return Response(
                 {'error': 'Config not found'},
@@ -382,15 +439,28 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         更新配置 (PUT)
         """
         try:
-            config = self.queryset.get(pk=pk)
+            config = self.get_queryset().get(pk=pk)
             data = request.data
 
             # 如果启用此配置，先禁用其他所有配置
+            new_role = self._normalize_role(data.get('role', config.role))
+            if new_role is None:
+                return Response(
+                    {'error': 'role must be browser_use_text or browser_use_vision'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                self._resolve_and_validate_model_base_url(
+                    data.get('model_type', config.model_type),
+                    data.get('base_url', config.base_url),
+                )
+            except ValueError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             new_is_active = data.get('is_active', config.is_active)
             disabled_config_names = []
             if new_is_active:
                 # 查找将被禁用的配置
-                active_configs = self.queryset.exclude(pk=pk).filter(is_active=True)
+                active_configs = self.get_queryset().exclude(pk=pk).filter(role=new_role, is_active=True)
                 disabled_config_names = [c.name for c in active_configs]
                 # 先禁用其他所有配置（不包括当前配置），避免唯一约束冲突
                 active_configs.update(is_active=False)
@@ -400,6 +470,8 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                 config.name = data['name']
             if 'model_type' in data:
                 config.model_type = data['model_type']
+            if 'role' in data:
+                config.role = new_role
             if 'model_name' in data:
                 config.model_name = data['model_name']
             if 'api_key' in data and data['api_key']:
@@ -411,16 +483,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
 
             config.save()
 
-            response_data = {
-                'id': config.id,
-                'name': config.name,
-                'model_type': config.model_type,
-                'model_name': config.model_name,
-                'base_url': config.base_url,
-                'is_active': config.is_active,
-                'created_at': config.created_at,
-                'updated_at': config.updated_at
-            }
+            response_data = self._serialize_config(config)
 
             # 如果禁用了其他配置,返回被禁用的配置名称
             if disabled_config_names:
@@ -449,7 +512,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         删除配置
         """
         try:
-            config = self.queryset.get(pk=pk)
+            config = self.get_queryset().get(pk=pk)
             config.delete()
             return Response(
                 {'message': 'Config deleted successfully'},
@@ -461,6 +524,7 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+    @extend_schema(operation_id='ui_automation_ai_model_test_connection_preview')
     @action(detail=False, methods=['post'], url_path='test_connection')
     def test_connection_preview(self, request):
         """
@@ -545,9 +609,10 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
             )
 
 
+    @extend_schema(operation_id='ui_automation_ai_model_test_connection_saved')
     @action(detail=True, methods=['post'], url_path='test_connection')
     def test_connection(self, request, pk=None):
-        config = self.queryset.filter(pk=pk).first()
+        config = self.get_queryset().filter(pk=pk).first()
         if not config:
             return Response(
                 {'error': 'Config not found'},
@@ -562,8 +627,21 @@ class AIIntelligentModeConfigViewSet(viewsets.ViewSet):
         )
 
 
+class AIModelsAliasViewSet(AIIntelligentModeConfigViewSet):
+    """
+    Legacy alias route for `/ai-models`.
+    Keep runtime compatibility but avoid duplicate schema entries.
+    """
+    schema = None
+
+
+class WalletBrowserConfigSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class WalletBrowserConfigViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    serializer_class = WalletBrowserConfigSchemaSerializer
     queryset = WalletBrowserConfig.objects.all()
 
     def list(self, request):
@@ -679,7 +757,7 @@ class WalletBrowserConfigViewSet(viewsets.ViewSet):
         logger.info(f"模型类型: {config.model_type}")
         logger.info(f"模型名称: {config.model_name}")
         logger.info(f"API URL: {config.base_url}")
-        logger.info(f"API Key前缀: {config.api_key[:10]}..." if len(config.api_key) > 10 else f"API Key: {config.api_key}")
+        logger.info("API Key configured: %s", bool(config.api_key))
 
         base_url = config.base_url
         if not base_url:

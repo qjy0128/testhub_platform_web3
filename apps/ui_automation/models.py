@@ -124,9 +124,14 @@ class Element(models.Model):
     is_visible = models.BooleanField(default=True, verbose_name='是否可见')
     is_enabled = models.BooleanField(default=True, verbose_name='是否启用')
     force_action = models.BooleanField(default=False, verbose_name='强制操作', help_text='对visibility:hidden的元素使用force选项')
+    sort_order = models.PositiveIntegerField(default=0)
+    fallback_enabled = models.BooleanField(default=True)
 
     # 统计信息
     usage_count = models.IntegerField(default=0, verbose_name='使用次数', help_text='在脚本中被引用的次数')
+    locator_success_count = models.PositiveIntegerField(default=0)
+    locator_failure_count = models.PositiveIntegerField(default=0)
+    last_used_locator = models.JSONField(default=dict, blank=True)
     last_validated = models.DateTimeField(null=True, blank=True, verbose_name='最后验证时间')
     validation_status = models.CharField(max_length=20, choices=VALIDATION_STATUS_CHOICES, default='UNKNOWN', verbose_name='验证状态')
     validation_message = models.TextField(blank=True, verbose_name='验证消息')
@@ -140,11 +145,12 @@ class Element(models.Model):
         db_table = 'ui_elements'
         verbose_name = 'UI元素'
         verbose_name_plural = 'UI元素'
-        ordering = ['page', 'name']
+        ordering = ['page', 'sort_order', 'name']
         indexes = [
             models.Index(fields=['project', 'page']),
             models.Index(fields=['project', 'element_type']),
             models.Index(fields=['validation_status']),
+            models.Index(fields=['project', 'page', 'sort_order']),
         ]
 
     def __str__(self):
@@ -160,15 +166,18 @@ class Element(models.Model):
         locators = [{
             'strategy': self.locator_strategy.name,
             'value': self.locator_value,
-            'is_primary': True
+            'is_primary': True,
+            'priority': 0,
         }]
 
-        if self.backup_locators:
-            for backup in self.backup_locators:
+        if self.fallback_enabled and self.backup_locators:
+            for backup in sorted(self.backup_locators, key=lambda item: item.get('priority', 100)):
                 locators.append({
                     'strategy': backup.get('strategy'),
                     'value': backup.get('value'),
-                    'is_primary': False
+                    'is_primary': False,
+                    'priority': backup.get('priority', 100),
+                    'name': backup.get('name', ''),
                 })
 
         return locators
@@ -1183,7 +1192,12 @@ class AIExecutionRecord(models.Model):
     ai_case = models.ForeignKey(AICase, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='关联AI用例')
     case_name = models.CharField(max_length=200, verbose_name='用例名称快照')
     task_description = models.TextField(blank=True, default='', verbose_name='任务描述', help_text='用户输入的原始任务描述')
-    execution_mode = models.CharField(max_length=20, choices=[('text', '文本模式')], default='text', verbose_name='执行模式')
+    execution_mode = models.CharField(
+        max_length=20,
+        choices=[('text', '文本模式'), ('vision', '视觉模式')],
+        default='text',
+        verbose_name='执行模式',
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name='执行状态')
     start_time = models.DateTimeField(auto_now_add=True, verbose_name='开始时间')
     end_time = models.DateTimeField(null=True, blank=True, verbose_name='结束时间')

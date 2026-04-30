@@ -23,6 +23,11 @@ __pycache__/
 .pytest_cache/
 
 # ============================================================
+# 本地运行 / 测试产物总目录（统一收口，不提交）
+# ============================================================
+.local/
+
+# ============================================================
 # 配置与密钥
 # ============================================================
 .env
@@ -35,6 +40,8 @@ __pycache__/
 # 包括钱包自动化产生的运行时 Chrome profile
 # ============================================================
 .tmp/
+.tmp-tests/
+.tmp-*/
 tmp_*
 tmp-*
 *.tmp
@@ -48,6 +55,9 @@ logs/*
 !logs/*/
 logs/*/*
 !logs/*/.gitkeep
+logs/debug/
+logs/regression/
+logs/runtime/
 
 # ============================================================
 # 静态与媒体文件
@@ -57,6 +67,8 @@ media/allure-static/*
 !media/allure-static/.gitkeep
 media/ai_recording/*
 !media/ai_recording/.gitkeep
+media/ocr_service/*
+!media/ocr_service/.gitkeep
 media/requirement_docs/*
 !media/requirement_docs/.gitkeep
 media/api-testing/allure-results/*
@@ -73,10 +85,11 @@ media/app-automation/screenshots/*
 !media/app-automation/screenshots/.gitkeep
 
 # ============================================================
-# Django migrations (仅保留 __init__.py)
+# Django migrations
 # ============================================================
-apps/*/migrations/*
-!apps/*/migrations/__init__.py
+# 迁移文件是数据库 schema 的发布记录，必须随代码提交。
+apps/*/migrations/__pycache__/
+apps/*/migrations/*.py[cod]
 
 # ============================================================
 # APP 自动化模板

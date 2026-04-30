@@ -4,6 +4,7 @@ APP自动化测试 Celery 任务
 """
 from celery import shared_task
 from django.utils import timezone
+from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_url
 import logging
 import os
 from asgiref.sync import async_to_sync
@@ -85,6 +86,14 @@ def _send_app_webhook_notification(task, detail_content, status_text):
             continue
 
         bot_type = bot.get('type', 'unknown')
+        try:
+            webhook_url = validate_notification_webhook_url(
+                webhook_url,
+                bot_type=bot_type,
+            )
+        except ValueError as exc:
+            logger.warning("Skipping unsafe webhook URL for %s bot: %s", bot_type, exc)
+            continue
         success = status_text == '成功'
 
         if bot_type == 'wechat':
@@ -109,7 +118,7 @@ def _send_app_webhook_notification(task, detail_content, status_text):
                 task=task, task_name=task.name, task_type=task.task_type,
                 notification_type='task_execution', sender_name='系统Webhook通知',
                 sender_email='system@notification.com',
-                recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': redact_webhook_url(webhook_url)}],
                 webhook_bot_info=bot,
                 notification_content=json.dumps(message_data, ensure_ascii=False),
                 status=log_status,

@@ -20,10 +20,16 @@ from .views import (
     AIExecutionRecordViewSet,
     AICaseViewSet,
     UiNotificationLogViewSet,
+    UiTaskNotificationSettingViewSet,
     OperationRecordViewSet,
     UiDashboardViewSet
 )
-from .views_config import EnvironmentConfigViewSet, AIIntelligentModeConfigViewSet, WalletBrowserConfigViewSet
+from .views_config import (
+    EnvironmentConfigViewSet,
+    AIIntelligentModeConfigViewSet,
+    AIModelsAliasViewSet,
+    WalletBrowserConfigViewSet,
+)
 
 router = DefaultRouter()
 router.register(r'dashboard', UiDashboardViewSet, basename='dashboard')
@@ -45,6 +51,7 @@ router.register(r'ai-execution-records', AIExecutionRecordViewSet)
 router.register(r'ai-cases', AICaseViewSet, basename='ai-cases')
 router.register(r'ai-case-generation', AICaseViewSet, basename='ai-case-generation')
 router.register(r'notification-logs', UiNotificationLogViewSet)
+router.register(r'task-notification-settings', UiTaskNotificationSettingViewSet, basename='task-notification-settings')
 router.register(r'operation-records', OperationRecordViewSet)
 
 
@@ -52,7 +59,7 @@ router.register(r'operation-records', OperationRecordViewSet)
 router.register(r'config/environment', EnvironmentConfigViewSet, basename='config-environment')
 router.register(r'config/ai-mode', AIIntelligentModeConfigViewSet, basename='config-ai-mode')
 router.register(r'config/wallet-browser', WalletBrowserConfigViewSet, basename='config-wallet-browser')
-router.register(r'ai-models', AIIntelligentModeConfigViewSet, basename='ai-models')
+router.register(r'ai-models', AIModelsAliasViewSet, basename='ai-models')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -72,6 +72,7 @@ class AppDevice(models.Model):
     ]
     
     CONNECTION_TYPE_CHOICES = [
+        ('usb', 'USB'),
         ('emulator', '本地模拟器'),
         ('remote_emulator', '远程模拟器'),
         ('real_device', '真实设备'),
@@ -101,6 +102,12 @@ class AppDevice(models.Model):
     device_specs = models.JSONField(default=dict, verbose_name='设备规格', help_text='RAM, CPU, 分辨率等信息')
     description = models.TextField(blank=True, default='', verbose_name='设备描述')
     location = models.CharField(max_length=200, blank=True, default='', verbose_name='设备位置')
+    pool_name = models.CharField(max_length=120, blank=True, default='default')
+    capabilities = models.JSONField(default=dict, blank=True)
+    scrcpy_config = models.JSONField(default=dict, blank=True)
+    scrcpy_status = models.CharField(max_length=20, blank=True, default='stopped')
+    scrcpy_url = models.CharField(max_length=500, blank=True, default='')
+    last_seen_at = models.DateTimeField(null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
@@ -113,6 +120,8 @@ class AppDevice(models.Model):
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['device_id']),
+            models.Index(fields=['pool_name', 'status']),
+            models.Index(fields=['last_seen_at']),
         ]
     
     def __str__(self):

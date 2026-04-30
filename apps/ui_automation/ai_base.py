@@ -2700,6 +2700,33 @@ class RawResponseLogger(BaseCallbackHandler):
 # PART 3: Base Browser Agent
 # ============================================================================
 
+BROWSER_EXECUTION_MODE_ALIASES = {
+    'text': 'text',
+    'browser_text': 'text',
+    'browser-use-text': 'text',
+    'browser_use_text': 'text',
+    'vision': 'vision',
+    'visual': 'vision',
+    'browser_vision': 'vision',
+    'browser-use-vision': 'vision',
+    'browser_use_vision': 'vision',
+}
+
+BROWSER_ROLE_BY_EXECUTION_MODE = {
+    'text': 'browser_use_text',
+    'vision': 'browser_use_vision',
+}
+
+
+def normalize_browser_execution_mode(execution_mode='text'):
+    raw_mode = str(execution_mode or 'text').strip().lower()
+    return BROWSER_EXECUTION_MODE_ALIASES.get(raw_mode, 'text')
+
+
+def browser_role_for_execution_mode(execution_mode='text'):
+    return BROWSER_ROLE_BY_EXECUTION_MODE[normalize_browser_execution_mode(execution_mode)]
+
+
 try:
     from browser_use import Agent, Controller
     from browser_use.browser.events import CloseTabEvent, SwitchTabEvent
@@ -2716,7 +2743,7 @@ class BaseBrowserAgent:
                 'browser-use runtime is unavailable in the current environment: '
                 f'{BROWSER_USE_IMPORT_ERROR}'
             )
-        self.execution_mode = 'text'
+        self.execution_mode = normalize_browser_execution_mode(execution_mode)
         self.wallet_context = wallet_context or {}
         self._wallet_controller = None
         self._wallet_target_chain_ready = not bool(resolve_wallet_target_chain_config(self.wallet_context))
@@ -2727,9 +2754,15 @@ class BaseBrowserAgent:
         # Load Config from DB
         from apps.requirement_analysis.models import AIModelConfig
 
-        # Select Config (always use text mode config)
-        role_name = 'browser_use_text'
+        # Select the model config that matches the requested browser mode.
+        role_name = browser_role_for_execution_mode(self.execution_mode)
         config_obj = AIModelConfig.objects.filter(role=role_name, is_active=True).first()
+        if config_obj is None and self.execution_mode == 'vision':
+            config_obj = AIModelConfig.objects.filter(role='browser_use_text', is_active=True).first()
+            if config_obj:
+                logger.warning(
+                    "No active browser_use_vision config found; using active browser_use_text model config for vision mode."
+                )
 
         model_config = {}
         if config_obj:
@@ -2747,7 +2780,7 @@ class BaseBrowserAgent:
         self.provider = model_config.get('provider', 'openai')
 
         if not self.api_key:
-            raise ValueError(f"No API Key found for mode: {execution_mode}")
+            raise ValueError(f"No API Key found for mode: {self.execution_mode}")
 
         # 智能temperature处理：特殊模型强制使用特定temperature值
         # 格式: {'模型名称关键字': temperature值}
@@ -3640,7 +3673,7 @@ class BaseBrowserAgent:
             llm=self.llm,
             controller=controller,
             browser_profile=browser_profile,
-            use_vision=False,
+            use_vision=self.execution_mode == 'vision',
             max_actions_per_step=10,  # 增加步进密度，减少总步骤数，降低超时风险
             max_retries=2 if self.wallet_context.get('enabled') else 1,
             max_failures=4 if self.wallet_context.get('enabled') else 2,

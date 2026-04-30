@@ -20,6 +20,16 @@
               />
             </el-form-item>
 
+            <el-form-item label="执行模式">
+              <el-segmented
+                v-model="taskForm.executionMode"
+                :options="[
+                  { label: '文本', value: 'text' },
+                  { label: '视觉', value: 'vision' }
+                ]"
+              />
+            </el-form-item>
+
             <el-form-item :label="$t('uiAutomation.ai.walletMode')">
               <el-switch
                 v-model="taskForm.walletMode"
@@ -218,6 +228,7 @@ const logContainer = ref(null)
 
 const taskForm = reactive({
   description: '',
+  executionMode: 'text',
   enableGif: true,
   walletMode: false,
   walletProvider: 'metamask',
@@ -267,7 +278,7 @@ const handleRun = async () => {
   try {
     const response = await runAdhocAITask({
       task_description: taskForm.description,
-      execution_mode: 'text',  // 始终使用文本模式
+      execution_mode: taskForm.executionMode,
       enable_gif: taskForm.enableGif,
       wallet_mode: taskForm.walletMode,
       wallet_provider: taskForm.walletMode ? taskForm.walletProvider : '',

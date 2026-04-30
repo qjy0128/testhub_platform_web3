@@ -237,11 +237,11 @@
           </div>
           <div class="detail-item">
             <label>{{ $t('generatedTestCases.testSteps') }}</label>
-            <p class="test-steps" v-html="selectedTestCaseDetail.test_steps"></p>
+            <p class="test-steps">{{ selectedTestCaseDetail.test_steps }}</p>
           </div>
           <div class="detail-item">
             <label>{{ $t('generatedTestCases.expectedResult') }}</label>
-            <p v-html="selectedTestCaseDetail.expected_result"></p>
+            <p class="plain-text-content">{{ selectedTestCaseDetail.expected_result }}</p>
           </div>
           <div class="detail-item" v-if="selectedTestCaseDetail.review_comments">
             <label>{{ $t('generatedTestCases.reviewComments') }}</label>
@@ -1676,6 +1676,10 @@ export default {
   padding: 15px;
   border-radius: 6px;
   border-left: 4px solid #3498db;
+}
+
+.plain-text-content {
+  white-space: pre-line;
 }
 
 /* 采纳用例弹框样式 */

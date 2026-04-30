@@ -110,7 +110,7 @@
               <el-avatar v-else :size="36" :icon="Cpu" class="ai-avatar" />
             </div>
             <div class="message-bubble">
-              <div class="message-content" v-html="formatMessageContent(message.content)"></div>
+              <div class="message-content" v-html="safeFormatMessageContent(message.content)"></div>
               <div class="message-status" v-if="message.isPending">
                 <el-icon class="is-loading"><Loading /></el-icon> {{ $t('assistant.thinking') }}
               </div>
@@ -214,14 +214,23 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString(localeCode, { month: '2-digit', day: '2-digit' })
 }
 
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
 const formatMessageContent = (content) => {
   if (!content) return ''
-  // 简单的 markdown 处理，实际项目中建议使用 markdown-it
-  return content
-    .replace(/\n/g, '<br>')
+  // 先转义再做最小 Markdown 展示，避免 AI/接口内容注入 HTML。
+  return escapeHtml(content)
     .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>')
 }
+
+const safeFormatMessageContent = (content) => formatMessageContent(content)
 
 const scrollToBottom = () => {
   nextTick(() => {

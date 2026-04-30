@@ -2,10 +2,16 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">{{ $t('project.projectManagement') }}</h1>
-      <el-button type="primary" @click="handleCreateProject">
-        <el-icon><Plus /></el-icon>
-        {{ $t('project.newProject') }}
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="router.push('/ai-generation/scheduled-jobs')">
+          <el-icon><Timer /></el-icon>
+          {{ $t('project.scheduledJobs') }}
+        </el-button>
+        <el-button type="primary" @click="handleCreateProject">
+          <el-icon><Plus /></el-icon>
+          {{ $t('project.newProject') }}
+        </el-button>
+      </div>
     </div>
 
     <div class="card-container">
@@ -46,6 +52,31 @@
         <el-table-column prop="status" :label="$t('project.status')" width="100">
           <template #default="{ row }">
             <el-tag :type="getStatusType(row.status)">{{ getStatusText(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$t('project.moduleBindings')" min-width="220">
+          <template #default="{ row }">
+            <div class="summary-tags">
+              <el-tag size="small">{{ $t('project.boundModules') }} {{ row.module_summary?.total || 0 }}</el-tag>
+              <el-tag
+                v-for="module in getBoundModuleTags(row)"
+                :key="`${row.id}-${module.module}`"
+                size="small"
+                :type="getModuleTagType(module)"
+              >
+                {{ module.module_display || module.module }} {{ row.module_summary?.[module.module] || 0 }}
+              </el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$t('project.scheduledJobs')" min-width="180">
+          <template #default="{ row }">
+            <div class="job-summary">
+              <div>{{ $t('project.scheduledJobs') }} {{ row.scheduled_job_summary?.total || 0 }}</div>
+              <div class="job-summary-subtext">
+                {{ $t('project.active') }} {{ row.scheduled_job_summary?.active || 0 }}
+              </div>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="owner.username" :label="$t('project.owner')" width="120" />
@@ -121,8 +152,10 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Timer } from '@element-plus/icons-vue'
 import api from '@/utils/api'
 import dayjs from 'dayjs'
+import { getUnifiedProjects } from '@/api/core'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -138,6 +171,19 @@ const pageSize = ref(20)
 const total = ref(0)
 const searchText = ref('')
 const statusFilter = ref('')
+
+const normalizeListResponse = (payload) => {
+  if (Array.isArray(payload)) {
+    return {
+      results: payload,
+      count: payload.length
+    }
+  }
+  return {
+    results: payload?.results || [],
+    count: payload?.count || 0
+  }
+}
 
 const form = reactive({
   id: null,
@@ -164,9 +210,10 @@ const fetchProjects = async () => {
       search: searchText.value,
       status: statusFilter.value
     }
-    const response = await api.get('/projects/', { params })
-    projects.value = response.data.results
-    total.value = response.data.count
+    const response = await getUnifiedProjects(params)
+    const normalized = normalizeListResponse(response.data)
+    projects.value = normalized.results
+    total.value = normalized.count
   } catch (error) {
     ElMessage.error(t('project.fetchListFailed'))
   } finally {
@@ -286,6 +333,21 @@ const getStatusText = (status) => {
   return textMap[status] || status
 }
 
+const getModuleTagType = (module) => {
+  return module?.module_tag_type || 'info'
+}
+
+const getBoundModuleTags = (project) => {
+  const seen = new Set()
+  return (project.modules || []).filter((module) => {
+    if (seen.has(module.module)) {
+      return false
+    }
+    seen.add(module.module)
+    return true
+  }).slice(0, 3)
+}
+
 const formatDate = (dateString) => {
   return dayjs(dateString).format('YYYY-MM-DD HH:mm')
 }
@@ -296,8 +358,28 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+.header-actions {
+  display: flex;
+  gap: 12px;
+}
+
 .filter-bar {
   margin-bottom: 20px;
+}
+
+.summary-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.job-summary {
+  line-height: 1.4;
+}
+
+.job-summary-subtext {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .pagination-container {
@@ -385,6 +467,11 @@ onMounted(() => {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-direction: column;
   }
   
   .filter-bar {

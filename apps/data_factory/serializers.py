@@ -19,7 +19,7 @@ class DataFactoryRecordSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'user', 'created_at']
 
-    def get_tool_name_display(self, obj):
+    def get_tool_name_display(self, obj) -> str:
         """获取工具名称的显示名称"""
         try:
             # 直接在方法内获取工具列表

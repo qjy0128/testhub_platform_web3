@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter
+from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
@@ -13,7 +14,8 @@ from django.views.decorators.csrf import csrf_exempt
 import logging
 import os
 
-from ..models import AppTestExecution
+from ..models import AppProject, AppTestExecution
+from ..permissions import user_can_access_app_execution
 from ..serializers import AppTestExecutionSerializer
 from ..tasks import send_execution_update
 from .test_case_views import AppPagination
@@ -32,7 +34,17 @@ class AppTestExecutionViewSet(viewsets.ModelViewSet):
     pagination_class = AppPagination
     
     def get_queryset(self):
+        user = self.request.user
         queryset = super().get_queryset()
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+            accessible_projects = AppProject.objects.filter(
+                Q(owner=user) | Q(members=user)
+            ).distinct()
+            queryset = queryset.filter(
+                Q(user=user) |
+                Q(test_case__project__in=accessible_projects) |
+                Q(test_suite__project__in=accessible_projects)
+            ).distinct()
 
         # 支持 test_suite__isnull 过滤，用于区分单独执行和套件执行
         suite_isnull = self.request.query_params.get('test_suite__isnull')
@@ -120,18 +132,23 @@ def serve_report_file(request, execution_id, file_path=''):
     """提供 Allure 报告文件访问"""
     try:
         execution = AppTestExecution.objects.get(id=execution_id)
+        if not user_can_access_app_execution(request.user, execution):
+            raise PermissionDenied("Permission denied")
+
         if not execution.report_path:
             raise Http404("报告路径不存在")
 
         if not file_path:
             file_path = 'index.html'
 
-        report_dir = execution.report_path
-        full_path = os.path.join(report_dir, file_path)
+        report_dir_abs = os.path.abspath(execution.report_path)
+        full_path_abs = os.path.abspath(os.path.join(report_dir_abs, file_path))
+        try:
+            common_path = os.path.commonpath([report_dir_abs, full_path_abs])
+        except ValueError:
+            raise Http404("无效的文件路径")
 
-        report_dir_abs = os.path.abspath(report_dir)
-        full_path_abs = os.path.abspath(full_path)
-        if not full_path_abs.startswith(report_dir_abs):
+        if common_path != report_dir_abs:
             raise Http404("无效的文件路径")
 
         if not os.path.exists(full_path_abs) or not os.path.isfile(full_path_abs):

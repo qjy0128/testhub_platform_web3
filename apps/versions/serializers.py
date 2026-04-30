@@ -14,7 +14,7 @@ class VersionSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'description', 'is_baseline', 'projects', 'created_by', 'created_at', 'testcases_count']
         read_only_fields = ['id', 'created_at', 'updated_at']
     
-    def get_testcases_count(self, obj):
+    def get_testcases_count(self, obj) -> int:
         return obj.testcases.count()
 
 class VersionCreateSerializer(serializers.ModelSerializer):

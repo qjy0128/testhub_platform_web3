@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -10,6 +10,7 @@ from rest_framework import filters
 from django.db import models
 from django.utils import timezone
 from contextlib import contextmanager
+from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_url
 import logging
 import json
 import os
@@ -49,6 +50,28 @@ from .wallet_session import finalize_wallet_session, prepare_wallet_browser_sess
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+
+
+def is_ui_automation_admin(user):
+    return getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)
+
+
+def accessible_ui_projects_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return UiProject.objects.none()
+    if is_ui_automation_admin(user):
+        return UiProject.objects.all()
+    return UiProject.objects.filter(
+        models.Q(owner=user) | models.Q(members=user)
+    ).distinct()
+
+
+def accessible_test_scripts_for_user(user):
+    return TestScript.objects.filter(project__in=accessible_ui_projects_for_user(user))
+
+
+def accessible_test_cases_for_user(user):
+    return TestCase.objects.filter(project__in=accessible_ui_projects_for_user(user))
 
 
 @contextmanager
@@ -168,11 +191,7 @@ class UiProjectViewSet(viewsets.ModelViewSet):
         return UiProjectSerializer
 
     def get_queryset(self):
-        # 只显示用户有权限访问的项目
-        user = self.request.user
-        return UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
+        return accessible_ui_projects_for_user(self.request.user)
 
     def perform_create(self, serializer):
         # 创建项目时，当前用户自动成为负责人
@@ -218,7 +237,7 @@ class ElementViewSet(viewsets.ModelViewSet):
         ).distinct()
         return Element.objects.filter(project__in=accessible_projects).select_related(
             'project', 'group', 'locator_strategy', 'created_by', 'parent_element'
-        ).prefetch_related('script_usages__script').order_by('page', 'name')
+        ).prefetch_related('script_usages__script').order_by('page', 'sort_order', 'name')
 
     def filter_queryset(self, queryset):
         # 先应用默认的过滤器
@@ -289,16 +308,82 @@ class ElementViewSet(viewsets.ModelViewSet):
         element = self.get_object()
         strategy = request.data.get('strategy')
         value = request.data.get('value')
+        priority = request.data.get('priority', 100)
+        name = request.data.get('name', '')
 
         if not strategy or not value:
             return Response({'error': '策略和值都是必需的'}, status=status.HTTP_400_BAD_REQUEST)
 
         backup_locators = element.backup_locators or []
-        backup_locators.append({'strategy': strategy, 'value': value})
+        backup_locators.append({
+            'strategy': strategy,
+            'value': value,
+            'priority': priority,
+            'name': name,
+        })
         element.backup_locators = backup_locators
         element.save()
 
         return Response({'message': '备用定位器添加成功'})
+
+    @action(detail=True, methods=['post'])
+    def record_locator_result(self, request, pk=None):
+        """记录定位器运行结果，用于统计和回退策略优化。"""
+        element = self.get_object()
+        success = bool(request.data.get('success', False))
+        locator = request.data.get('locator') or {}
+
+        if success:
+            element.locator_success_count += 1
+            element.validation_status = 'VALID'
+            element.validation_message = ''
+        else:
+            element.locator_failure_count += 1
+            element.validation_status = 'INVALID'
+            element.validation_message = request.data.get('message', '')
+
+        element.last_used_locator = locator
+        element.last_validated = timezone.now()
+        element.save(update_fields=[
+            'locator_success_count',
+            'locator_failure_count',
+            'last_used_locator',
+            'last_validated',
+            'validation_status',
+            'validation_message',
+            'updated_at',
+        ])
+
+        return Response(ElementEnhancedSerializer(element).data)
+
+    @action(detail=False, methods=['post'])
+    def reorder(self, request):
+        """批量更新元素排序。"""
+        items = request.data.get('items', [])
+        updated = 0
+        queryset = self.get_queryset()
+
+        for item in items:
+            try:
+                updated += queryset.filter(id=item.get('id')).update(sort_order=int(item.get('sort_order') or 0))
+            except (TypeError, ValueError):
+                continue
+
+        return Response({'updated': updated})
+
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """获取当前可访问范围内的元素统计。"""
+        queryset = self.get_queryset()
+        project_id = request.query_params.get('project')
+        if project_id:
+            queryset = queryset.filter(project_id=project_id)
+
+        return Response({
+            'total': queryset.count(),
+            'by_type': list(queryset.values('element_type').annotate(count=models.Count('id'))),
+            'fallback_enabled': queryset.filter(fallback_enabled=True).count(),
+        })
 
     @action(detail=True, methods=['post'])
     def generate_suggestions(self, request, pk=None):
@@ -470,7 +555,7 @@ class PageObjectViewSet(viewsets.ModelViewSet):
     def add_element(self, request, pk=None):
         """向页面对象添加元素"""
         page_object = self.get_object()
-        serializer = PageObjectElementSerializer(data=request.data)
+        serializer = PageObjectElementSerializer(data=request.data, context={'request': request})
 
         if serializer.is_valid():
             serializer.save(page_object=page_object)
@@ -527,7 +612,7 @@ class ScriptStepViewSet(viewsets.ModelViewSet):
         created_steps = []
 
         for step_data in steps_data:
-            serializer = ScriptStepSerializer(data=step_data)
+            serializer = ScriptStepSerializer(data=step_data, context={'request': request})
             if serializer.is_valid():
                 step = serializer.save()
                 created_steps.append(step)
@@ -565,7 +650,7 @@ class ScriptElementUsageViewSet(viewsets.ModelViewSet):
             return Response({'error': '需要指定脚本ID'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            script = TestScript.objects.get(id=script_id)
+            script = accessible_test_scripts_for_user(request.user).get(id=script_id)
             analysis_result = self._analyze_script_elements(script)
 
             serializer = ScriptAnalysisSerializer(analysis_result)
@@ -651,12 +736,7 @@ class TestScriptViewSet(viewsets.ModelViewSet):
         return TestScriptSerializer
 
     def get_queryset(self):
-        # 只显示用户有权限访问的项目的测试脚本
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-        return TestScript.objects.filter(project__in=accessible_projects)
+        return accessible_test_scripts_for_user(self.request.user)
 
 
 class TestSuiteViewSet(viewsets.ModelViewSet):
@@ -677,12 +757,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         return TestSuiteSerializer
 
     def get_queryset(self):
-        # 只显示用户有权限访问的项目的测试套件
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-        return TestSuite.objects.filter(project__in=accessible_projects)
+        return TestSuite.objects.filter(project__in=accessible_ui_projects_for_user(self.request.user))
 
     def perform_create(self, serializer):
         instance = serializer.save()
@@ -709,16 +784,28 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def add_script(self, request, pk=None):
-        """向测试套件添加脚本"""
+        """Add a script to the current suite after checking project access."""
         test_suite = self.get_object()
-        data = request.data
-        data['test_suite'] = pk
-        serializer = TestSuiteScriptSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        script_id = request.data.get('test_script_id') or request.data.get('test_script')
+        order = request.data.get('order', 0)
 
+        try:
+            test_script = accessible_test_scripts_for_user(request.user).get(
+                id=script_id,
+                project=test_suite.project,
+            )
+            suite_script = TestSuiteScript.objects.create(
+                test_suite=test_suite,
+                test_script=test_script,
+                order=order,
+            )
+        except TestScript.DoesNotExist:
+            return Response({'error': 'Test script not found.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = TestSuiteScriptSerializer(suite_script)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
     @action(detail=True, methods=['delete'])
     def remove_script(self, request, pk=None, script_id=None):
         """从测试套件移除脚本"""
@@ -740,23 +827,28 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def add_test_case(self, request, pk=None):
-        """向测试套件添加测试用例"""
+        """Add a test case to the current suite after checking project access."""
         test_suite = self.get_object()
         test_case_id = request.data.get('test_case_id')
         order = request.data.get('order', 0)
 
         try:
             from .models import TestSuiteTestCase
+            test_case = accessible_test_cases_for_user(request.user).get(
+                id=test_case_id,
+                project=test_suite.project,
+            )
             suite_test_case = TestSuiteTestCase.objects.create(
                 test_suite=test_suite,
-                test_case_id=test_case_id,
+                test_case=test_case,
                 order=order
             )
             serializer = TestSuiteTestCaseSerializer(suite_test_case)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except TestCase.DoesNotExist:
+            return Response({'error': 'Test case not found.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
     @action(detail=True, methods=['delete'])
     def remove_test_case(self, request, pk=None):
         """从测试套件移除测试用例"""
@@ -894,6 +986,34 @@ class TestExecutionViewSet(viewsets.ModelViewSet):
         log_operation('delete', 'report', instance.id, suite_name, self.request.user)
         instance.delete()
 
+    @action(detail=True, methods=['get'], url_path='export-pdf')
+    def export_pdf(self, request, pk=None):
+        """导出简版 PDF 执行报告。"""
+        execution = self.get_object()
+        title = f"UI Test Execution #{execution.id}"
+        body = (
+            f"Status: {execution.status}\\n"
+            f"Total: {getattr(execution, 'total_cases', 0)}\\n"
+            f"Passed: {getattr(execution, 'passed_cases', 0)}\\n"
+            f"Failed: {getattr(execution, 'failed_cases', 0)}\\n"
+        )
+        text = (title + "\\n" + body).replace('(', '\\(').replace(')', '\\)')
+        stream = f"BT /F1 12 Tf 72 740 Td ({text}) Tj ET"
+        pdf = (
+            b"%PDF-1.4\\n"
+            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\\n"
+            b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\\n"
+            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\\n"
+            b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\\n"
+            + f"5 0 obj << /Length {len(stream.encode('utf-8'))} >> stream\\n".encode('utf-8')
+            + stream.encode('utf-8')
+            + b"\\nendstream endobj\\ntrailer << /Root 1 0 R >>\\n%%EOF\\n"
+        )
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename=\"ui-test-execution-{execution.id}.pdf\"'
+        return response
+
 
 class ScreenshotViewSet(viewsets.ModelViewSet):
     queryset = Screenshot.objects.all()
@@ -924,19 +1044,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
     filterset_fields = ['project', 'status', 'priority', 'created_by']
 
     def get_queryset(self):
-        # 只显示用户有权限访问的项目的测试用例
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-
-    def get_queryset(self):
-        # 只显示用户有权限访问的项目的测试用例
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-        return TestCase.objects.filter(project__in=accessible_projects).select_related('project', 'created_by')
+        return accessible_test_cases_for_user(self.request.user).select_related('project', 'created_by')
 
     def perform_create(self, serializer):
         # 创建测试用例
@@ -1869,7 +1977,7 @@ class TestCaseViewSet(viewsets.ModelViewSet):
         results = []
         for test_case_id in test_case_ids:
             try:
-                test_case = TestCase.objects.get(id=test_case_id)
+                test_case = accessible_test_cases_for_user(request.user).get(id=test_case_id)
                 # 这里调用单个运行逻辑
                 # 简化处理，实际应该异步执行
                 results.append({
@@ -1905,12 +2013,8 @@ class TestCaseStepViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # 只显示用户有权限访问的测试用例的步骤
-        user = self.request.user
-        accessible_projects = UiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
-        accessible_test_cases = TestCase.objects.filter(project__in=accessible_projects)
-        return TestCaseStep.objects.filter(test_case__in=accessible_projects)
+        accessible_test_cases = accessible_test_cases_for_user(self.request.user)
+        return TestCaseStep.objects.filter(test_case__in=accessible_test_cases)
 
 
 class TestCaseExecutionViewSet(viewsets.ModelViewSet):
@@ -2153,7 +2257,10 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     }, status=status.HTTP_400_BAD_REQUEST)
 
                 test_case_ids = task.test_cases
-                test_cases = TestCase.objects.filter(id__in=test_case_ids)
+                test_cases = accessible_test_cases_for_user(request.user).filter(
+                    id__in=test_case_ids,
+                    project=task.project,
+                )
                 test_case_count = test_cases.count()
 
                 if test_case_count == 0:
@@ -2581,7 +2688,14 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                     continue
 
                 bot_type = bot.get('type', 'unknown')
-                webhook_url = bot['webhook_url']
+                try:
+                    webhook_url = validate_notification_webhook_url(
+                        bot['webhook_url'],
+                        bot_type=bot_type,
+                    )
+                except ValueError as exc:
+                    logger.warning("Skipping unsafe webhook URL for %s bot: %s", bot_type, exc)
+                    continue
                 logger.info(f"发送通知到 {bot_type} 机器人: {bot.get('name', 'Unknown')}")
 
                 # 构造详细内容
@@ -2674,7 +2788,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
 
                 # 发送webhook请求
                 try:
-                    logger.info(f"发送请求到: {webhook_url}")
+                    logger.info("Sending webhook notification to %s bot.", bot_type)
                     logger.info(f"消息数据: {json.dumps(message_data, ensure_ascii=False, indent=2)}")
 
                     response = requests.post(
@@ -2698,7 +2812,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                             notification_type='task_execution',
                             sender_name='系统Webhook通知',
                             sender_email='system@notification.com',
-                            recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                            recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': redact_webhook_url(webhook_url)}],
                             webhook_bot_info=bot,
                             notification_content=json.dumps(message_data, ensure_ascii=False),
                             status='success',
@@ -2716,7 +2830,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                             notification_type='task_execution',
                             sender_name='系统Webhook通知',
                             sender_email='system@notification.com',
-                            recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                            recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': redact_webhook_url(webhook_url)}],
                             webhook_bot_info=bot,
                             notification_content=json.dumps(message_data, ensure_ascii=False),
                             status='failed',
@@ -2735,7 +2849,7 @@ class UiScheduledTaskViewSet(viewsets.ModelViewSet):
                         notification_type='task_execution',
                         sender_name='系统Webhook通知',
                         sender_email='system@notification.com',
-                        recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': webhook_url}],
+                        recipient_info=[{'name': bot.get('name', 'Unknown'), 'webhook_url': redact_webhook_url(webhook_url)}],
                         webhook_bot_info=bot,
                         notification_content=json.dumps(message_data, ensure_ascii=False),
                         status='failed',
@@ -3449,7 +3563,8 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
 
         project_id = request.data.get('project_id')
         task_description = request.data.get('task_description')
-        execution_mode = request.data.get('execution_mode', 'text')  # 默认文本模式
+        from .ai_base import normalize_browser_execution_mode
+        execution_mode = normalize_browser_execution_mode(request.data.get('execution_mode', 'text'))
         enable_gif = parse_bool(request.data.get('enable_gif', True), default=True)  # GIF录制开关，默认开启
         wallet_mode = parse_bool(request.data.get('wallet_mode', False))
         wallet_provider = request.data.get('wallet_provider', 'metamask') if wallet_mode else ''
@@ -3463,7 +3578,7 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
         project = None
         if project_id:
             try:
-                project = UiProject.objects.get(id=project_id)
+                project = accessible_ui_projects_for_user(request.user).get(id=project_id)
             except UiProject.DoesNotExist:
                 return Response({'error': '项目不存在'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -4002,9 +4117,14 @@ class AIExecutionRecordViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class UiDashboardSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class UiDashboardViewSet(viewsets.ViewSet):
     """UI自动化仪表盘视图集"""
     permission_classes = [IsAuthenticated]
+    serializer_class = UiDashboardSchemaSerializer
 
     @action(detail=False, methods=['get'])
     def stats(self, request):

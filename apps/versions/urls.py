@@ -4,5 +4,6 @@ from . import views
 urlpatterns = [
     path('', views.VersionListCreateView.as_view(), name='version-list'),
     path('<int:pk>/', views.VersionDetailView.as_view(), name='version-detail'),
+    path('<int:pk>/traceability/', views.version_traceability, name='version-traceability'),
     path('projects/<int:project_id>/versions/', views.get_project_versions, name='project-versions'),
 ]

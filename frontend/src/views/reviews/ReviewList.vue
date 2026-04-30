@@ -10,6 +10,52 @@
       </div>
     </div>
 
+    <div class="review-center">
+      <div class="center-head">
+        <div>
+          <h2>Review Center</h2>
+          <p>Global review queue, personal pending work, and overdue risk.</p>
+        </div>
+        <el-button :loading="centerLoading" @click="fetchReviewCenter">Refresh Center</el-button>
+      </div>
+      <div class="center-metrics">
+        <div v-for="metric in centerMetrics" :key="metric.key" class="center-metric" :class="metric.tone">
+          <span>{{ metric.label }}</span>
+          <strong>{{ metric.value }}</strong>
+        </div>
+      </div>
+      <div class="center-lanes">
+        <div class="center-lane">
+          <div class="lane-title">My Pending</div>
+          <button
+            v-for="review in reviewCenter.my_pending_reviews || []"
+            :key="review.id"
+            class="lane-item"
+            type="button"
+            @click="viewReview(review.id)"
+          >
+            <span>{{ review.title }}</span>
+            <small>{{ review.deadline ? formatDate(review.deadline) : 'No deadline' }}</small>
+          </button>
+          <el-empty v-if="!(reviewCenter.my_pending_reviews || []).length" description="No pending review" :image-size="40" />
+        </div>
+        <div class="center-lane">
+          <div class="lane-title">Overdue</div>
+          <button
+            v-for="review in reviewCenter.overdue_reviews || []"
+            :key="review.id"
+            class="lane-item is-danger"
+            type="button"
+            @click="viewReview(review.id)"
+          >
+            <span>{{ review.title }}</span>
+            <small>{{ review.deadline ? formatDate(review.deadline) : 'No deadline' }}</small>
+          </button>
+          <el-empty v-if="!(reviewCenter.overdue_reviews || []).length" description="No overdue review" :image-size="40" />
+        </div>
+      </div>
+    </div>
+
     <div class="filter-bar">
       <el-form :inline="true" :model="filters" class="filter-form">
         <el-form-item :label="$t('reviewList.project')">
@@ -148,7 +194,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -165,6 +211,8 @@ const reviews = ref([])
 const projects = ref([])
 const users = ref([])
 const loading = ref(false)
+const centerLoading = ref(false)
+const reviewCenter = ref({ summary: {}, my_pending_reviews: [], overdue_reviews: [] })
 const reviewDialogVisible = ref(false)
 const currentReview = ref(null)
 
@@ -185,6 +233,29 @@ const reviewForm = reactive({
   comment: ''
 })
 
+const centerMetrics = computed(() => {
+  const summary = reviewCenter.value.summary || {}
+  return [
+    { key: 'open', label: 'Open', value: summary.open || 0, tone: '' },
+    { key: 'my_pending', label: 'My Pending', value: summary.my_pending || 0, tone: summary.my_pending ? 'is-warn' : '' },
+    { key: 'overdue', label: 'Overdue', value: summary.overdue || 0, tone: summary.overdue ? 'is-danger' : '' },
+    { key: 'pending_assignments', label: 'Pending Assignments', value: summary.assignments_pending || 0, tone: '' },
+    { key: 'approved', label: 'Approved', value: summary.approved || 0, tone: 'is-success' }
+  ]
+})
+
+const fetchReviewCenter = async () => {
+  centerLoading.value = true
+  try {
+    const response = await api.get('/reviews/reviews/center/', { params: filters })
+    reviewCenter.value = response.data || { summary: {}, my_pending_reviews: [], overdue_reviews: [] }
+  } catch (error) {
+    ElMessage.error('Failed to load review center')
+  } finally {
+    centerLoading.value = false
+  }
+}
+
 const fetchReviews = async () => {
   loading.value = true
   try {
@@ -198,6 +269,7 @@ const fetchReviews = async () => {
     const response = await api.get('/reviews/reviews/', { params })
     reviews.value = response.data.results
     pagination.total = response.data.count
+    fetchReviewCenter()
   } catch (error) {
     ElMessage.error(t('reviewList.fetchListFailed'))
   } finally {
@@ -334,10 +406,140 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
+.review-center {
+  margin-bottom: 18px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--el-bg-color);
+}
+
+.center-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+
+  h2 {
+    margin: 0 0 4px;
+    color: var(--el-text-color-primary);
+    font-size: 18px;
+  }
+
+  p {
+    margin: 0;
+    color: var(--el-text-color-secondary);
+  }
+}
+
+.center-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.center-metric {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px 12px;
+
+  span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+  }
+
+  strong {
+    color: var(--el-text-color-primary);
+    font-size: 22px;
+  }
+
+  &.is-warn {
+    border-color: var(--el-color-warning-light-5);
+    background: var(--el-color-warning-light-9);
+  }
+
+  &.is-danger {
+    border-color: var(--el-color-danger-light-5);
+    background: var(--el-color-danger-light-9);
+  }
+
+  &.is-success {
+    border-color: var(--el-color-success-light-5);
+    background: var(--el-color-success-light-9);
+  }
+}
+
+.center-lanes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.center-lane {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.lane-title {
+  margin-bottom: 8px;
+  color: var(--el-text-color-primary);
+  font-weight: 600;
+}
+
+.lane-item {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--el-fill-color-extra-light);
+  cursor: pointer;
+
+  span,
+  small {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    color: var(--el-text-color-primary);
+    font-weight: 600;
+  }
+
+  small {
+    margin-top: 4px;
+    color: var(--el-text-color-secondary);
+  }
+
+  &.is-danger {
+    border-color: var(--el-color-danger-light-5);
+  }
+}
+
 .priority-tag {
   &.low { color: #67c23a; }
   &.medium { color: #e6a23c; }
   &.high { color: #f56c6c; }
   &.urgent { color: #f56c6c; font-weight: bold; }
+}
+
+@media (max-width: 768px) {
+  .center-head {
+    flex-direction: column;
+  }
+
+  .center-metrics,
+  .center-lanes {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

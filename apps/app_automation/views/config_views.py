@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """APP自动化配置管理视图"""
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 import logging
 
 from ..models import AppTestConfig
@@ -12,9 +12,14 @@ from ..serializers import AppTestConfigSerializer
 logger = logging.getLogger(__name__)
 
 
+class AppConfigSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class AppConfigViewSet(viewsets.ViewSet):
     """APP测试配置视图集"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
+    serializer_class = AppConfigSchemaSerializer
     
     @action(detail=False, methods=['get'])
     def current(self, request):

@@ -4,17 +4,28 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.http import FileResponse
-from django.conf import settings
+from django.db.models import Q
 from pathlib import Path
 from .test_case_views import AppPagination
 import hashlib
-import re
 import logging
+import mimetypes
 
 from ..models import AppElement
+from ..permissions import accessible_app_projects_for_user, user_can_access_app_project
 from ..serializers import AppElementSerializer
+from ..utils.path_safety import (
+    UnsafeTemplatePath,
+    MAX_IMAGE_UPLOAD_SIZE,
+    safe_template_join,
+    sanitize_category,
+    sanitize_file_stem,
+    sanitize_image_filename,
+    validate_image_upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +39,50 @@ class AppElementViewSet(viewsets.ModelViewSet):
     # ⚠️ 移除 SearchFilter，使用自定义搜索逻辑
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['element_type', 'is_active', 'project']
-    
+
+    def _ensure_project_access(self, project):
+        if project and not user_can_access_app_project(self.request.user, project):
+            raise PermissionDenied('无权访问该 APP 项目')
+
+    def _validate_image_config(self, serializer):
+        attrs = serializer.validated_data
+        instance = serializer.instance
+        element_type = attrs.get('element_type', getattr(instance, 'element_type', None))
+        config = attrs.get('config', getattr(instance, 'config', None))
+        if config is None:
+            config = {}
+
+        if element_type != 'image':
+            return
+
+        if not isinstance(config, dict):
+            raise ValidationError({'config': 'Image config must be an object'})
+
+        image_path = config.get('image_path')
+        if not image_path:
+            return
+
+        try:
+            _, normalized_path = safe_template_join(self.get_template_base_path(), image_path)
+        except UnsafeTemplatePath as exc:
+            raise ValidationError({'config': str(exc)}) from exc
+
+        if 'config' in attrs:
+            normalized_config = dict(config)
+            normalized_config['image_path'] = normalized_path
+            attrs['config'] = normalized_config
+
     def perform_create(self, serializer):
+        self._ensure_project_access(serializer.validated_data.get('project'))
+        self._validate_image_config(serializer)
         serializer.save(created_by=self.request.user)
-    
+
+    def perform_update(self, serializer):
+        project = serializer.validated_data.get('project', serializer.instance.project)
+        self._ensure_project_access(project)
+        self._validate_image_config(serializer)
+        serializer.save()
+
     def perform_destroy(self, instance):
         """
         删除元素时同时删除物理文件
@@ -41,10 +92,8 @@ class AppElementViewSet(viewsets.ModelViewSet):
             image_path = instance.config.get('image_path')
             if image_path:
                 try:
-                    # 构造完整文件路径
-                    template_base = self.get_template_base_path()
-                    file_path = template_base / image_path
-                    
+                    file_path, _ = safe_template_join(self.get_template_base_path(), image_path)
+
                     # 删除文件
                     if file_path.exists():
                         file_path.unlink()
@@ -54,10 +103,10 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 except Exception as e:
                     logger.error(f"删除图片文件失败: {str(e)}")
                     # 继续删除数据库记录，即使文件删除失败
-        
+
         # 删除数据库记录
         instance.delete()
-    
+
     def get_queryset(self):
         """
         自定义查询集，支持名称和标签搜索
@@ -66,18 +115,25 @@ class AppElementViewSet(viewsets.ModelViewSet):
         - 标签：精确匹配 JSONField 数组中的元素
         """
         queryset = super().get_queryset()
-        
+        user = self.request.user
+
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+            accessible_projects = accessible_app_projects_for_user(user)
+            queryset = queryset.filter(
+                Q(project__in=accessible_projects) |
+                Q(project__isnull=True, created_by=user)
+            ).distinct()
+
         # 获取搜索关键词
         search = self.request.query_params.get('search', '').strip()
         if search:
-            from django.db.models import Q
             from django.db import connection
             import json
-            
+
             if 'mysql' in connection.vendor:
                 # MySQL: 使用 JSON_CONTAINS 查询
                 search_json = json.dumps(search)  # "登录" → '"登录"'
-                
+
                 # 不使用表名前缀，让 Django 自动处理
                 queryset = queryset.extra(
                     where=["name LIKE %s OR JSON_CONTAINS(tags, %s)"],
@@ -89,9 +145,9 @@ class AppElementViewSet(viewsets.ModelViewSet):
                     Q(name__icontains=search) | 
                     Q(tags__contains=[search])
                 )
-        
+
         return queryset
-    
+
     def get_template_base_path(self):
         """
         获取模板基础路径
@@ -103,7 +159,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
         # .parent = .../views/
         # .parent.parent = .../app_automation/
         return Path(__file__).resolve().parent.parent / "Template"
-    
+
     @action(detail=False, methods=['post'], url_path='upload')
     def upload_image(self, request):
         """
@@ -124,11 +180,12 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'success': False
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # 获取参数
-        category = request.data.get('category', 'common')
         element_id = request.data.get('element_id')  # 编辑模式时传递，用于排除自身
-        
+
         try:
+            category = sanitize_category(request.data.get('category', 'common'))
+            filename = validate_image_upload(file_obj)
+
             # ✅ 业务逻辑内联：计算文件哈希
             file_obj.seek(0)
             hasher = hashlib.md5()
@@ -138,7 +195,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
             file_obj.seek(0)
             
             # ✅ 业务逻辑内联：检查是否重复（排除当前元素）
-            query = AppElement.objects.filter(
+            query = self.get_queryset().filter(
                 config__file_hash=file_hash,
                 is_active=True
             )
@@ -162,25 +219,21 @@ class AppElementViewSet(viewsets.ModelViewSet):
                         }
                     }
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
+
             # ✅ 业务逻辑内联：保存图片到 Template 目录
-            template_base = self.get_template_base_path()
-            category_path = template_base / category
-            category_path.mkdir(parents=True, exist_ok=True)
-            
-            # 使用原始文件名
-            file_path = category_path / file_obj.name
-            
+            file_path, relative_path = safe_template_join(
+                self.get_template_base_path(),
+                f'{category}/{filename}'
+            )
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
             # 保存文件
             with open(file_path, 'wb+') as destination:
                 for chunk in file_obj.chunks():
                     destination.write(chunk)
-            
-            # 构建相对路径（直接返回 category/filename.png）
-            relative_path = f"{category}/{file_obj.name}"
-            
+
             logger.info(f"用户 {request.user.username} 上传图片: {relative_path}, 哈希: {file_hash}")
-            
+
             return Response({
                 'code': 0,
                 'msg': '上传成功',
@@ -191,7 +244,12 @@ class AppElementViewSet(viewsets.ModelViewSet):
                     'url': f"/app-automation-templates/{relative_path}"
                 }
             })
-        
+        except UnsafeTemplatePath as e:
+            return Response({
+                'code': 400,
+                'msg': str(e),
+                'success': False
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"上传图片失败: {str(e)}")
             return Response({
@@ -199,7 +257,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'msg': f'上传失败: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['get'], url_path='image-categories')
     def image_categories(self, request):
         """
@@ -247,7 +305,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'msg': f'获取失败: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['post'], url_path='image-categories/create')
     def create_image_category(self, request):
         """
@@ -256,28 +314,21 @@ class AppElementViewSet(viewsets.ModelViewSet):
         参数：
         - name: 分类名称（只能包含字母、数字、下划线、中划线）
         """
-        category_name = request.data.get('name', '').strip()
-        
-        if not category_name:
+        try:
+            category_name = sanitize_category(request.data.get('name', ''))
+        except UnsafeTemplatePath as e:
             return Response({
                 'code': 400,
-                'msg': '分类名称不能为空',
+                'msg': str(e),
                 'success': False
             }, status=status.HTTP_400_BAD_REQUEST)
-        
-        # ✅ 业务逻辑内联：验证分类名称
-        if not re.match(r'^[a-zA-Z0-9_\-\u4e00-\u9fa5]+$', category_name):
-            return Response({
-                'code': 400,
-                'msg': '分类名称只能包含字母、数字、下划线、中划线和中文',
-                'success': False
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
             # ✅ 业务逻辑内联：在 Template 目录创建分类
-            template_base = self.get_template_base_path()
-            category_path = template_base / category_name
-            
+            template_base = self.get_template_base_path().resolve(strict=False)
+            category_path = (template_base / category_name).resolve(strict=False)
+            category_path.relative_to(template_base)
+
             if category_path.exists():
                 return Response({
                     'code': 400,
@@ -286,9 +337,9 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             category_path.mkdir(parents=True, exist_ok=True)
-            
+
             logger.info(f"用户 {request.user.username} 创建图片分类: {category_name}")
-            
+
             return Response({
                 'code': 0,
                 'msg': '创建成功',
@@ -304,7 +355,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'msg': f'创建失败: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['delete'], url_path='image-categories/(?P<name>[^/.]+)')
     def delete_image_category(self, request, name=None):
         """
@@ -313,18 +364,13 @@ class AppElementViewSet(viewsets.ModelViewSet):
         参数：
         - name: 分类名称
         """
-        if not name:
-            return Response({
-                'code': 400,
-                'msg': '分类名称不能为空',
-                'success': False
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
         try:
+            category_name = sanitize_category(name)
             # ✅ 业务逻辑内联：从 Template 目录删除分类
-            template_base = self.get_template_base_path()
-            category_path = template_base / name
-            
+            template_base = self.get_template_base_path().resolve(strict=False)
+            category_path = (template_base / category_name).resolve(strict=False)
+            category_path.relative_to(template_base)
+
             if not category_path.exists():
                 return Response({
                     'code': 404,
@@ -342,14 +388,20 @@ class AppElementViewSet(viewsets.ModelViewSet):
             
             # 删除空目录
             category_path.rmdir()
-            
-            logger.info(f"用户 {request.user.username} 删除图片分类: {name}")
-            
+
+            logger.info(f"用户 {request.user.username} 删除图片分类: {category_name}")
+
             return Response({
                 'code': 0,
                 'msg': '删除成功',
                 'success': True
             })
+        except UnsafeTemplatePath as e:
+            return Response({
+                'code': 400,
+                'msg': str(e),
+                'success': False
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"删除分类失败: {str(e)}")
             return Response({
@@ -357,7 +409,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'msg': f'删除失败: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=True, methods=['get'], url_path='preview')
     def preview(self, request, pk=None):
         """
@@ -366,37 +418,43 @@ class AppElementViewSet(viewsets.ModelViewSet):
         返回图片文件（用于前端显示）
         """
         element = self.get_object()
-        
+
         if element.element_type != 'image':
             return Response({
                 'code': 400,
                 'msg': '该元素不是图片类型',
                 'success': False
             }, status=status.HTTP_400_BAD_REQUEST)
-        
+
         # 获取图片路径
         image_path = element.config.get('image_path')
-        
+
         if not image_path:
             return Response({
                 'code': 404,
                 'msg': '图片路径不存在',
                 'success': False
             }, status=status.HTTP_404_NOT_FOUND)
-        
-        # ✅ 业务逻辑内联：从 Template 目录构造完整文件路径
-        template_base = self.get_template_base_path()
-        file_path = template_base / image_path
-        
+
+        try:
+            file_path, _ = safe_template_join(self.get_template_base_path(), image_path)
+        except UnsafeTemplatePath as e:
+            return Response({
+                'code': 400,
+                'msg': str(e),
+                'success': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if not file_path.exists():
             return Response({
                 'code': 404,
                 'msg': '图片文件不存在',
                 'success': False
             }, status=status.HTTP_404_NOT_FOUND)
-        
+
         try:
-            return FileResponse(open(file_path, 'rb'), content_type='image/png')
+            content_type = mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
+            return FileResponse(open(file_path, 'rb'), content_type=content_type)
         except Exception as e:
             logger.error(f"读取图片失败: {str(e)}")
             return Response({
@@ -404,7 +462,7 @@ class AppElementViewSet(viewsets.ModelViewSet):
                 'msg': f'读取图片失败: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+
     @action(detail=False, methods=['post'], url_path='crop-image')
     def crop_image(self, request):
         """
@@ -435,30 +493,34 @@ class AppElementViewSet(viewsets.ModelViewSet):
             width = int(request.data.get('width', 100))
             height = int(request.data.get('height', 100))
             element_name = request.data.get('element_name', 'captured_element')
-            category = request.data.get('category', 'common')
+            category = sanitize_category(request.data.get('category', 'common'))
             element_type = request.data.get('element_type', 'image')  # image/pos/region
-            
+
             # 解码 Base64 图片
             if image_data.startswith('data:image'):
                 image_data = image_data.split(',')[1]
-            
+
             image_bytes = base64.b64decode(image_data)
+            if len(image_bytes) > MAX_IMAGE_UPLOAD_SIZE:
+                raise UnsafeTemplatePath('Image file cannot exceed 5MB')
             image = Image.open(io.BytesIO(image_bytes))
-            
+
             # 裁剪图片
             cropped = image.crop((x, y, x + width, y + height))
-            
+
             # 保存到临时缓冲区
             buffer = io.BytesIO()
             cropped.save(buffer, format='PNG')
+            if buffer.tell() > MAX_IMAGE_UPLOAD_SIZE:
+                raise UnsafeTemplatePath('Cropped image cannot exceed 5MB')
             buffer.seek(0)
-            
+
             # 计算哈希
             file_hash = hashlib.md5(buffer.getvalue()).hexdigest()
             buffer.seek(0)
-            
+
             # 检查重复
-            existing = AppElement.objects.filter(
+            existing = self.get_queryset().filter(
                 config__file_hash=file_hash,
                 is_active=True
             ).first()
@@ -476,24 +538,21 @@ class AppElementViewSet(viewsets.ModelViewSet):
                         }
                     }
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # 保存文件（统一使用 Template 目录）
-            base_path = self.get_template_base_path()
-            category_path = base_path / category
-            category_path.mkdir(parents=True, exist_ok=True)
-            
+
             # 使用元素名称 + 时间戳作为文件名
-            filename = f"{element_name}_{int(time.time())}.png"
-            file_path = category_path / filename
-            
+            filename = f"{sanitize_file_stem(element_name)}_{int(time.time())}.png"
+            filename = sanitize_image_filename(filename)
+            file_path, relative_path = safe_template_join(
+                self.get_template_base_path(),
+                f'{category}/{filename}'
+            )
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
             with open(file_path, 'wb') as f:
                 f.write(buffer.getvalue())
-            
-            # 构建相对路径
-            relative_path = f"{category}/{filename}"
-            
+
             logger.info(f"用户 {request.user.username} 裁剪图片: {relative_path}, 哈希: {file_hash}")
-            
+
             return Response({
                 'code': 0,
                 'msg': '裁剪成功',
@@ -511,7 +570,12 @@ class AppElementViewSet(viewsets.ModelViewSet):
                     'element_type': element_type
                 }
             })
-            
+        except UnsafeTemplatePath as e:
+            return Response({
+                'code': 400,
+                'msg': str(e),
+                'success': False
+            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"裁剪图片失败: {str(e)}")
             return Response({

@@ -2,6 +2,7 @@
 import subprocess
 import logging
 import platform
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -228,3 +229,64 @@ class DeviceManager:
         except Exception as e:
             logger.error(f"断开设备失败: {str(e)}")
             return False
+
+    def scrcpy_available(self, scrcpy_path: str = 'scrcpy') -> dict:
+        """Return scrcpy availability and version metadata."""
+        resolved = shutil.which(scrcpy_path) or scrcpy_path
+        try:
+            result = subprocess.run(
+                [resolved, '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                **self.subprocess_kwargs
+            )
+            output = result.stdout or result.stderr or ''
+            return {
+                'available': result.returncode == 0,
+                'path': resolved,
+                'version': output.splitlines()[0] if output else '',
+                'error': '' if result.returncode == 0 else result.stderr,
+            }
+        except Exception as exc:
+            return {
+                'available': False,
+                'path': resolved,
+                'version': '',
+                'error': str(exc),
+            }
+
+    def build_scrcpy_command(
+        self,
+        device_id: str,
+        scrcpy_path: str = 'scrcpy',
+        max_size: int | None = None,
+        video_bitrate: str | None = None,
+        window_title: str | None = None,
+        stay_awake: bool = True,
+        turn_screen_off: bool = False,
+        record_path: str | None = None,
+    ) -> list[str]:
+        command = [scrcpy_path, '--serial', device_id]
+        if max_size:
+            command.extend(['--max-size', str(max_size)])
+        if video_bitrate:
+            command.extend(['--video-bit-rate', str(video_bitrate)])
+        if window_title:
+            command.extend(['--window-title', window_title])
+        if stay_awake:
+            command.append('--stay-awake')
+        if turn_screen_off:
+            command.append('--turn-screen-off')
+        if record_path:
+            command.extend(['--record', record_path])
+        return command
+
+    def start_scrcpy(self, device_id: str, **options) -> subprocess.Popen:
+        command = self.build_scrcpy_command(device_id, **options)
+        return subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **self.subprocess_kwargs
+        )

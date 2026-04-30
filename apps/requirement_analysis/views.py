@@ -4,12 +4,14 @@ import re
 import os  # Added import
 import json
 import time
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from django.conf import settings  # Added import
 from rest_framework.decorators import action, permission_classes
 from rest_framework.response import Response
 from rest_framework.renderers import BaseRenderer
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 
 
 class PassThroughRenderer(BaseRenderer):
@@ -31,6 +33,7 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from django.db import models
 
+from apps.projects.unified import accessible_projects_for_user, user_can_access_project
 from .models import (
     RequirementDocument, RequirementAnalysis, BusinessRequirement,
     GeneratedTestCase, AnalysisTask, AIModelConfig, PromptConfig, TestCaseGenerationTask,
@@ -49,11 +52,41 @@ from .services import RequirementAnalysisService, DocumentProcessor
 logger = logging.getLogger(__name__)
 
 
+def _is_staff_user(user):
+    return bool(getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False))
+
+
+def _accessible_requirement_documents_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return RequirementDocument.objects.none()
+    if _is_staff_user(user):
+        return RequirementDocument.objects.all()
+    return RequirementDocument.objects.filter(
+        models.Q(uploaded_by=user) |
+        models.Q(project__in=accessible_projects_for_user(user))
+    ).distinct()
+
+
+def _resolve_accessible_project(user, project_id):
+    if not project_id:
+        return None
+    try:
+        project = Project.objects.get(id=project_id)
+    except (Project.DoesNotExist, TypeError, ValueError):
+        return None
+    if not user_can_access_project(user, project):
+        return None
+    return project
+
+
 class RequirementDocumentViewSet(viewsets.ModelViewSet):
     """需求文档视图集"""
     queryset = RequirementDocument.objects.all()
     serializer_class = RequirementDocumentSerializer
     parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return _accessible_requirement_documents_for_user(self.request.user)
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -190,6 +223,10 @@ class RequirementAnalysisViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = RequirementAnalysis.objects.all()
     serializer_class = RequirementAnalysisSerializer
 
+    def get_queryset(self):
+        documents = _accessible_requirement_documents_for_user(self.request.user)
+        return super().get_queryset().filter(document__in=documents)
+
     @action(detail=True, methods=['get'])
     def requirements(self, request, pk=None):
         """获取分析的需求列表"""
@@ -205,7 +242,8 @@ class BusinessRequirementViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = BusinessRequirementSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        documents = _accessible_requirement_documents_for_user(self.request.user)
+        queryset = super().get_queryset().filter(analysis__document__in=documents)
         analysis_id = self.request.query_params.get('analysis_id')
         if analysis_id:
             queryset = queryset.filter(analysis_id=analysis_id)
@@ -377,7 +415,7 @@ class BusinessRequirementViewSet(viewsets.ReadOnlyModelViewSet):
             def run_generation():
                 try:
                     # 获取需求数据
-                    requirements = BusinessRequirement.objects.filter(id__in=requirement_ids)
+                    requirements = self.get_queryset().filter(id__in=requirement_ids)
                     generated_test_cases = []
 
                     for requirement in requirements:
@@ -456,7 +494,8 @@ class GeneratedTestCaseViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'patch']  # 只允许GET和PATCH方法
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        documents = _accessible_requirement_documents_for_user(self.request.user)
+        queryset = super().get_queryset().filter(requirement__analysis__document__in=documents)
 
         # 按需求ID过滤
         requirement_id = self.request.query_params.get('requirement_id')
@@ -490,7 +529,7 @@ class GeneratedTestCaseViewSet(viewsets.ModelViewSet):
             def run_review():
                 try:
                     # 获取测试用例
-                    test_cases = GeneratedTestCase.objects.filter(id__in=test_case_ids)
+                    test_cases = self.get_queryset().filter(id__in=test_case_ids)
 
                     passed_count = 0
                     reviewed_cases = []
@@ -553,7 +592,8 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AnalysisTaskSerializer
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        documents = _accessible_requirement_documents_for_user(self.request.user)
+        queryset = super().get_queryset().filter(document__in=documents)
         document_id = self.request.query_params.get('document_id')
         if document_id:
             queryset = queryset.filter(document_id=document_id)
@@ -572,13 +612,14 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def upload_and_analyze(request):
     """上传文档并立即开始分析"""
     try:
@@ -670,9 +711,10 @@ def upload_and_analyze(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def analyze_text(request):
     """直接分析文本内容"""
     try:
@@ -683,13 +725,17 @@ def analyze_text(request):
         if not title or not description:
             return Response({'error': '标题和描述不能为空'}, status=status.HTTP_400_BAD_REQUEST)
 
+        project = _resolve_accessible_project(request.user, project_id)
+        if project_id and project is None:
+            return Response({'error': 'Project is not accessible.'}, status=status.HTTP_403_FORBIDDEN)
+
         # 创建一个虚拟的需求文档记录
         document = RequirementDocument.objects.create(
             title=title,
             document_type='txt',
             status='analyzing',
-            uploaded_by_id=1,  # 使用默认用户ID，或者从request.user获取
-            project_id=project_id if project_id else None,
+            uploaded_by=request.user,
+            project=project,
             extracted_text=description
         )
 
@@ -764,9 +810,10 @@ def analyze_text(request):
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @csrf_exempt
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def analyze_text(request):
     """分析手动输入的需求文本"""
     try:
@@ -777,14 +824,18 @@ def analyze_text(request):
         if not title or not description:
             return Response({'error': '需求标题和描述不能为空'}, status=status.HTTP_400_BAD_REQUEST)
 
+        project = _resolve_accessible_project(request.user, project_id)
+        if project_id and project is None:
+            return Response({'error': 'Project is not accessible.'}, status=status.HTTP_403_FORBIDDEN)
+
         # 创建一个虚拟的需求文档记录
         document = RequirementDocument.objects.create(
             title=title,
             file=None,  # 手动输入没有文件
             document_type='txt',
             status='analyzing',
-            uploaded_by_id=1,  # 使用默认用户ID，或者从request.user获取
-            project_id=project_id if project_id else None,
+            uploaded_by=request.user,
+            project=project,
             extracted_text=description
         )
 
@@ -905,6 +956,7 @@ class AIModelConfigViewSet(viewsets.ModelViewSet):
     """AI模型配置视图集"""
     queryset = AIModelConfig.objects.all()
     serializer_class = AIModelConfigSerializer
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -939,8 +991,7 @@ class AIModelConfigViewSet(viewsets.ModelViewSet):
             logger.info(f"模型类型: {config.model_type}")
             logger.info(f"模型名称: {config.model_name}")
             logger.info(f"API URL: {config.base_url}")
-            logger.info(
-                f"API Key前缀: {config.api_key[:10]}..." if len(config.api_key) > 10 else f"API Key: {config.api_key}")
+            logger.info("API Key configured: %s", bool(config.api_key))
 
             # 准备测试消息
             test_messages = [
@@ -1048,6 +1099,7 @@ class PromptConfigViewSet(viewsets.ModelViewSet):
     """提示词配置视图集"""
     queryset = PromptConfig.objects.all()
     serializer_class = PromptConfigSerializer
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1199,6 +1251,7 @@ class GenerationConfigViewSet(viewsets.ModelViewSet):
     """生成行为配置视图集"""
     queryset = GenerationConfig.objects.all()
     serializer_class = GenerationConfigSerializer
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -1269,12 +1322,29 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
     """测试用例生成任务视图集"""
     queryset = TestCaseGenerationTask.objects.all()
     serializer_class = TestCaseGenerationTaskSerializer
+    permission_classes = [IsAuthenticated]
     pagination_class = TestCaseGenerationTaskPagination
     http_method_names = ['get', 'post', 'patch', 'delete']  # 允许GET、POST、PATCH和DELETE方法
     lookup_field = 'task_id'  # 使用task_id作为查找字段
 
+    @staticmethod
+    def _is_staff_user(user):
+        return bool(getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False))
+
+    def _filter_accessible_tasks(self, queryset):
+        user = getattr(self.request, 'user', None)
+        if not getattr(user, 'is_authenticated', False):
+            return queryset.none()
+        if self._is_staff_user(user):
+            return queryset
+        accessible_projects = accessible_projects_for_user(user)
+        return queryset.filter(
+            models.Q(created_by=user) |
+            models.Q(project__in=accessible_projects)
+        ).distinct()
+
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = self._filter_accessible_tasks(super().get_queryset())
 
         # 安全检查：确保request有query_params属性
         if not hasattr(self.request, 'query_params'):
@@ -1301,6 +1371,12 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
             validated_data = serializer.validated_data
+            project = validated_data.get('project')
+            if project and not user_can_access_project(request.user, project):
+                return Response(
+                    {'error': '无权访问该项目'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
             # 获取活跃的配置
             writer_config = None
@@ -1353,8 +1429,8 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             }
 
             # 如果请求中包含项目ID，添加到任务数据中
-            if 'project' in validated_data and validated_data['project']:
-                task_data['project'] = validated_data['project']
+            if project:
+                task_data['project'] = project.id
 
             # 处理输出模式：优先使用用户指定的，否则使用生成行为配置的默认值
             output_mode = request.data.get('output_mode')
@@ -1825,7 +1901,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
         methods=['get'],
         url_path='stream_progress',
         renderer_classes=[PassThroughRenderer],
-        permission_classes=[]  # 允许访问，task_id本身就是安全标识
+        permission_classes=[IsAuthenticated]
     )
     def stream_progress_sse(self, request, task_id=None):
         """
@@ -1852,15 +1928,14 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
 
                 # 兼容未配置时的本地开发默认
                 local_defaults = ['http://localhost:3000', 'http://127.0.0.1:3000']
-                if origin in local_defaults:
+                if settings.DEBUG and origin in local_defaults:
                     return origin
 
-                # 如果未匹配，优先返回第一个允许的 origin（避免返回错误的 localhost）
+                # 未匹配时返回已配置的第一个 origin，使浏览器拒绝不受信来源的凭证请求。
                 if allowed_origins:
                     return allowed_origins[0]
 
-                # 最后兜底：返回请求 origin（若存在）
-                return origin or 'http://localhost:3000'
+                return 'null'
 
             cors_origin = get_allowed_origin(request_origin)
 
@@ -1875,8 +1950,19 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                 response['Access-Control-Max-Age'] = '86400'
                 return response
 
-            # 获取任务对象
-            task = TestCaseGenerationTask.objects.filter(task_id=task_id).first()
+            if not getattr(request.user, 'is_authenticated', False):
+                from django.http import HttpResponse
+                response = HttpResponse(
+                    json.dumps({'error': '请先登录'}),
+                    status=401,
+                    content_type='application/json'
+                )
+                response['Access-Control-Allow-Origin'] = cors_origin
+                response['Access-Control-Allow-Credentials'] = 'true'
+                return response
+
+            # 获取任务对象。必须复用受权限过滤的 queryset，避免 task_id 成为访问令牌。
+            task = self.get_queryset().filter(task_id=task_id).first()
             if not task:
                 logger.warning(f"SSE连接失败: 任务未找到, task_id={task_id}")
                 # 返回JSON错误而不是SSE
@@ -2104,13 +2190,13 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
                     return origin
 
                 local_defaults = ['http://localhost:3000', 'http://127.0.0.1:3000']
-                if origin in local_defaults:
+                if settings.DEBUG and origin in local_defaults:
                     return origin
 
                 if allowed_origins:
                     return allowed_origins[0]
 
-                return origin or 'http://localhost:3000'
+                return 'null'
 
             cors_origin = get_allowed_origin(request_origin)
             response = HttpResponse(
@@ -2952,7 +3038,7 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             created_by = request.query_params.get('created_by')
 
             # 构建查询
-            queryset = TestCaseGenerationTask.objects.all()
+            queryset = self._filter_accessible_tasks(TestCaseGenerationTask.objects.all())
 
             if status_param:
                 queryset = queryset.filter(status=status_param)
@@ -3000,9 +3086,14 @@ class TestCaseGenerationTaskViewSet(viewsets.ModelViewSet):
             )
 
 
+class ConfigStatusSchemaSerializer(serializers.Serializer):
+    pass
+
+
 class ConfigStatusViewSet(viewsets.ViewSet):
+    serializer_class = ConfigStatusSchemaSerializer
     """配置状态检查视图集"""
-    permission_classes = []  # 允许未认证用户访问
+    permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=['get'])
     def check(self, request):

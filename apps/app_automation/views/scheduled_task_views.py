@@ -1,19 +1,27 @@
 # -*- coding: utf-8 -*-
 """APP自动化定时任务视图"""
-import json
 import logging
 
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
+from django.db.models import Q
 
 from .test_case_views import AppPagination
 from ..models import (
     AppScheduledTask, AppNotificationLog,
-    AppTestSuite, AppTestCase, AppDevice,
+    AppDevice,
+)
+from ..permissions import (
+    accessible_app_projects_for_user,
+    user_can_access_app_case,
+    user_can_access_app_package,
+    user_can_access_app_project,
+    user_can_access_app_suite,
 )
 from ..serializers import (
     AppScheduledTaskSerializer,
@@ -34,6 +42,51 @@ class AppScheduledTaskViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'next_run_time', 'last_run_time']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return queryset
+        accessible_projects = accessible_app_projects_for_user(user)
+        return queryset.filter(
+            Q(project__in=accessible_projects) |
+            Q(project__isnull=True, created_by=user)
+        ).distinct()
+
+    def _validate_project_relation(self, task_project, related_project_id):
+        if task_project and related_project_id != task_project.id:
+            raise PermissionDenied('关联资源不属于该 APP 项目')
+
+    def _validate_write_access(self, serializer):
+        instance = serializer.instance
+        data = serializer.validated_data
+        project = data.get('project', getattr(instance, 'project', None))
+        app_package = data.get('app_package', getattr(instance, 'app_package', None))
+        test_suite = data.get('test_suite', getattr(instance, 'test_suite', None))
+        test_case = data.get('test_case', getattr(instance, 'test_case', None))
+
+        if project and not user_can_access_app_project(self.request.user, project):
+            raise PermissionDenied('无权访问该 APP 项目')
+        if app_package and not user_can_access_app_package(self.request.user, app_package):
+            raise PermissionDenied('无权访问该应用包名')
+        if test_suite and not user_can_access_app_suite(self.request.user, test_suite):
+            raise PermissionDenied('无权访问该测试套件')
+        if test_case and not user_can_access_app_case(self.request.user, test_case):
+            raise PermissionDenied('无权访问该测试用例')
+
+        if test_suite:
+            self._validate_project_relation(project, test_suite.project_id)
+        if test_case:
+            self._validate_project_relation(project, test_case.project_id)
+
+    def perform_create(self, serializer):
+        self._validate_write_access(serializer)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._validate_write_access(serializer)
+        serializer.save()
 
     @action(detail=True, methods=['post'])
     def pause(self, request, pk=None):
@@ -162,6 +215,17 @@ class AppNotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
     search_fields = ['task_name', 'notification_content']
     ordering_fields = ['created_at', 'sent_at']
     ordering = ['-created_at']
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return queryset
+        accessible_projects = accessible_app_projects_for_user(user)
+        return queryset.filter(
+            Q(task__project__in=accessible_projects) |
+            Q(task__project__isnull=True, task__created_by=user)
+        ).distinct()
 
     @action(detail=True, methods=['post'])
     def retry(self, request, pk=None):

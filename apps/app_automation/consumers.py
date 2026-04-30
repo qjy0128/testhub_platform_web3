@@ -1,14 +1,41 @@
 import logging
 
+from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from .models import AppTestExecution
+from .permissions import user_can_access_app_execution
+
 logger = logging.getLogger(__name__)
+
+
+@database_sync_to_async
+def _user_can_subscribe_to_execution(user, execution_id):
+    try:
+        execution = AppTestExecution.objects.select_related(
+            'user',
+            'test_case__project__owner',
+            'test_suite__project__owner',
+        ).get(id=execution_id)
+    except AppTestExecution.DoesNotExist:
+        return False
+
+    return user_can_access_app_execution(user, execution)
 
 
 class AppExecutionConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
         try:
             self.execution_id = self.scope["url_route"]["kwargs"]["execution_id"]
+            user = self.scope.get('user')
+            if not getattr(user, 'is_authenticated', False):
+                await self.close()
+                return
+
+            if not await _user_can_subscribe_to_execution(user, self.execution_id):
+                await self.close()
+                return
+
             self.group_name = f"app_execution_{self.execution_id}"
             await self.channel_layer.group_add(self.group_name, self.channel_name)
             await self.accept()

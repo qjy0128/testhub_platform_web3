@@ -1,7 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.utils import timezone
 from datetime import datetime
+from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_bots
 
 
 class NullableDateField(serializers.DateField):
@@ -22,10 +24,85 @@ from .models import (
 User = get_user_model()
 
 
+def _request_user(serializer):
+    request = serializer.context.get('request')
+    return getattr(request, 'user', None)
+
+
+def _is_api_testing_admin(user):
+    return getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)
+
+
+def _accessible_api_projects_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return ApiProject.objects.none()
+    if _is_api_testing_admin(user):
+        return ApiProject.objects.all()
+
+    user_id = getattr(user, 'pk', None)
+    if user_id is None:
+        return ApiProject.objects.none()
+    return ApiProject.objects.filter(
+        models.Q(owner_id=user_id) | models.Q(members__id=user_id)
+    ).distinct()
+
+
+def _accessible_api_collections_for_user(user):
+    return ApiCollection.objects.filter(project__in=_accessible_api_projects_for_user(user))
+
+
+def _accessible_api_requests_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return ApiRequest.objects.none()
+    if _is_api_testing_admin(user):
+        return ApiRequest.objects.all()
+
+    user_id = getattr(user, 'pk', None)
+    if user_id is None:
+        return ApiRequest.objects.none()
+    return ApiRequest.objects.filter(
+        models.Q(collection__project__in=_accessible_api_projects_for_user(user)) |
+        models.Q(collection__isnull=True, created_by_id=user_id)
+    ).distinct()
+
+
+def _accessible_api_test_suites_for_user(user):
+    return TestSuite.objects.filter(project__in=_accessible_api_projects_for_user(user))
+
+
+def _accessible_environments_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return Environment.objects.none()
+    if _is_api_testing_admin(user):
+        return Environment.objects.all()
+    return Environment.objects.filter(
+        models.Q(scope='GLOBAL') |
+        models.Q(scope='LOCAL', project__in=_accessible_api_projects_for_user(user))
+    ).distinct()
+
+
+def _scope_related_queryset(serializer, field_name, queryset):
+    field = serializer.fields.get(field_name)
+    if field is not None and hasattr(field, 'queryset'):
+        field.queryset = queryset
+
+
+def _mask_secret(value, prefix=3, suffix=4):
+    if not value:
+        return ''
+
+    secret = str(value)
+    if len(secret) <= prefix + suffix:
+        return '*' * len(secret)
+
+    return f'{secret[:prefix]}{"*" * (len(secret) - prefix - suffix)}{secret[-suffix:]}'
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        ref_name = 'ApiTestingUser'
 
 
 class ApiProjectSerializer(serializers.ModelSerializer):
@@ -85,9 +162,24 @@ class ApiCollectionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    def get_children(self, obj):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            projects = _accessible_api_projects_for_user(user)
+            _scope_related_queryset(self, 'project', projects)
+            _scope_related_queryset(self, 'parent', ApiCollection.objects.filter(project__in=projects))
+
+    def get_children(self, obj) -> list:
         children = obj.children.all()
         return ApiCollectionSerializer(children, many=True).data
+
+    def validate(self, attrs):
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        parent = attrs.get('parent', getattr(self.instance, 'parent', None))
+        if project and parent and parent.project_id != project.id:
+            raise serializers.ValidationError({'parent': 'Parent collection must belong to the same project.'})
+        return attrs
 
 
 class ApiRequestSerializer(serializers.ModelSerializer):
@@ -103,10 +195,16 @@ class ApiRequestSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'description', 'request_type', 'method', 'url',
             'headers', 'params', 'body', 'auth', 'pre_request_script',
-            'post_request_script', 'assertions', 'collection', 'order', 'created_by',
+            'post_request_script', 'assertions', 'extractors', 'collection', 'order', 'created_by',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'collection', _accessible_api_collections_for_user(user))
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
@@ -139,10 +237,22 @@ class EnvironmentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at', 'created_by', 'project_name']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_api_projects_for_user(user))
+
     def validate(self, attrs):
-        if attrs.get('scope') == 'GLOBAL':
+        scope = attrs.get('scope', getattr(self.instance, 'scope', None))
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        user = _request_user(self)
+
+        if scope == 'GLOBAL':
+            if user is not None and not _is_api_testing_admin(user):
+                raise serializers.ValidationError({'scope': 'Only administrators can create or update global environments.'})
             attrs['project'] = None
-        elif attrs.get('scope') == 'LOCAL' and not attrs.get('project'):
+        elif scope == 'LOCAL' and not project:
             raise serializers.ValidationError({'project': '局部环境变量必须关联项目'})
         return attrs
 
@@ -185,9 +295,28 @@ class TestSuiteSerializer(serializers.ModelSerializer):
         model = TestSuite
         fields = [
             'id', 'name', 'description', 'project', 'environment',
+            'parameterized_enabled', 'parameterized_data',
             'suite_requests', 'created_by', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+        ref_name = 'ApiTestingTestSuite'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'project', _accessible_api_projects_for_user(user))
+            _scope_related_queryset(self, 'environment', _accessible_environments_for_user(user))
+
+    def validate(self, attrs):
+        project = attrs.get('project', getattr(self.instance, 'project', None))
+        environment = attrs.get('environment', getattr(self.instance, 'environment', None))
+        if (
+            project and environment and environment.scope == 'LOCAL' and
+            environment.project_id != project.id
+        ):
+            raise serializers.ValidationError({'environment': 'Local environment must belong to the test suite project.'})
+        return attrs
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
@@ -205,6 +334,7 @@ class TestExecutionSerializer(serializers.ModelSerializer):
             'total_requests', 'passed_requests', 'failed_requests',
             'results', 'executed_by', 'created_at'
         ]
+        ref_name = 'ApiTestingTestExecution'
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -243,7 +373,15 @@ class ScheduledTaskSerializer(serializers.ModelSerializer):
             'failed_runs', 'last_result', 'error_message', 'created_at', 'updated_at'
         ]
 
-    def get_notification_type_display(self, obj):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = _request_user(self)
+        if user is not None:
+            _scope_related_queryset(self, 'test_suite', _accessible_api_test_suites_for_user(user))
+            _scope_related_queryset(self, 'api_request', _accessible_api_requests_for_user(user))
+            _scope_related_queryset(self, 'environment', _accessible_environments_for_user(user))
+
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示"""
         try:
             notification_setting = obj.notification_settings.first()
@@ -253,7 +391,7 @@ class ScheduledTaskSerializer(serializers.ModelSerializer):
             pass
         return "-"
 
-    def get_notification_type(self, obj):
+    def get_notification_type(self, obj) -> str:
         """获取通知类型原始值"""
         try:
             notification_setting = obj.notification_settings.first()
@@ -265,31 +403,50 @@ class ScheduledTaskSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """验证定时任务配置"""
-        trigger_type = attrs.get('trigger_type')
+        trigger_type = attrs.get('trigger_type', getattr(self.instance, 'trigger_type', None))
 
         if trigger_type == 'CRON':
-            if not attrs.get('cron_expression'):
+            cron_expression = attrs.get('cron_expression', getattr(self.instance, 'cron_expression', None))
+            if not cron_expression:
                 raise serializers.ValidationError("Cron表达式不能为空")
             # 这里可以添加Cron表达式的格式验证
 
         elif trigger_type == 'INTERVAL':
-            if not attrs.get('interval_seconds'):
+            interval_seconds = attrs.get('interval_seconds', getattr(self.instance, 'interval_seconds', None))
+            if not interval_seconds:
                 raise serializers.ValidationError("间隔秒数不能为空")
-            if attrs['interval_seconds'] < 60:
+            if interval_seconds < 60:
                 raise serializers.ValidationError("间隔秒数不能小于60秒")
 
         elif trigger_type == 'ONCE':
-            if not attrs.get('execute_at'):
+            execute_at = attrs.get('execute_at', getattr(self.instance, 'execute_at', None))
+            if not execute_at:
                 raise serializers.ValidationError("执行时间不能为空")
-            if attrs['execute_at'] <= timezone.now():
+            if execute_at <= timezone.now():
                 raise serializers.ValidationError("执行时间必须大于当前时间")
 
         # 验证任务类型配置
-        task_type = attrs.get('task_type')
-        if task_type == 'TEST_SUITE' and not attrs.get('test_suite'):
+        task_type = attrs.get('task_type', getattr(self.instance, 'task_type', None))
+        test_suite = attrs.get('test_suite', getattr(self.instance, 'test_suite', None))
+        api_request = attrs.get('api_request', getattr(self.instance, 'api_request', None))
+        environment = attrs.get('environment', getattr(self.instance, 'environment', None))
+
+        if task_type == 'TEST_SUITE' and not test_suite:
             raise serializers.ValidationError("测试套件不能为空")
-        elif task_type == 'API_REQUEST' and not attrs.get('api_request'):
+        elif task_type == 'API_REQUEST' and not api_request:
             raise serializers.ValidationError("API请求不能为空")
+
+        project_id = None
+        if task_type == 'TEST_SUITE' and test_suite:
+            project_id = test_suite.project_id
+        elif task_type == 'API_REQUEST' and api_request and api_request.collection_id:
+            project_id = api_request.collection.project_id
+
+        if (
+            project_id and environment and environment.scope == 'LOCAL' and
+            environment.project_id != project_id
+        ):
+            raise serializers.ValidationError({'environment': 'Local environment must belong to the scheduled task project.'})
 
         return attrs
 
@@ -459,15 +616,15 @@ class NotificationLogSerializer(serializers.ModelSerializer):
                   'recipient_names', 'notification_target_display', 'status_display', 'created_at', 'sent_at', 'retry_status']
         read_only_fields = ['created_at', 'sent_at']
 
-    def get_recipient_names(self, obj):
+    def get_recipient_names(self, obj) -> str:
         """获取收件人姓名列表"""
         return obj.get_recipient_names()
 
-    def get_status_display(self, obj):
+    def get_status_display(self, obj) -> str:
         """获取状态显示"""
         return obj.get_status_display()
 
-    def get_notification_type_display(self, obj):
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示 - 从任务的通知设置中获取"""
         if obj.task:
             try:
@@ -479,7 +636,7 @@ class NotificationLogSerializer(serializers.ModelSerializer):
         # 回退到原始的通知类型显示
         return obj.get_notification_type_display()
 
-    def get_task_type_display(self, obj):
+    def get_task_type_display(self, obj) -> str:
         """获取任务类型显示 - 使用保存的快照值"""
         if obj.task_type:
             # 使用保存的任务类型快照
@@ -490,11 +647,11 @@ class NotificationLogSerializer(serializers.ModelSerializer):
         # 如果 task_type 为空，返回未记录，不要从 task 对象获取（避免显示修改后的值）
         return "未记录"
 
-    def get_retry_status(self, obj):
+    def get_retry_status(self, obj) -> str:
         """获取重试状态"""
         return obj.get_retry_status()
 
-    def get_notification_target_display(self, obj):
+    def get_notification_target_display(self, obj) -> str:
         """获取通知对象显示"""
         targets = []
 
@@ -538,16 +695,16 @@ class TaskNotificationSettingSerializer(serializers.ModelSerializer):
                   'notify_on_timeout', 'notify_on_error', 'active_types']
         read_only_fields = ['created_at', 'updated_at']
 
-    def get_notification_type_display(self, obj):
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示"""
         return obj.get_notification_type_display()
 
-    def get_notification_config_info(self, obj):
+    def get_notification_config_info(self, obj) -> str:
         """获取通知配置信息"""
         config = obj.get_notification_config()
         return f"{config.name}" if config else "未配置通知"
 
-    def get_active_types(self, obj):
+    def get_active_types(self, obj) -> str:
         """获取激活的通知类型"""
         types = obj.get_active_notification_types()
         type_names = []
@@ -575,7 +732,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
                   'created_at', 'sent_at', 'retry_count', 'is_retried']
         read_only_fields = ['created_at', 'sent_at']
 
-    def get_notification_type_display(self, obj):
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示 - 从任务的通知设置中获取"""
         if obj.task:
             try:
@@ -587,11 +744,11 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
         # 回退到原始的通知类型显示
         return obj.get_notification_type_display()
 
-    def get_status_display(self, obj):
+    def get_status_display(self, obj) -> str:
         """获取状态显示"""
         return obj.get_status_display()
 
-    def get_task_type_display(self, obj):
+    def get_task_type_display(self, obj) -> str:
         """获取任务类型显示 - 使用保存的快照值"""
         if obj.task_type:
             # 使用保存的任务类型快照
@@ -602,7 +759,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
         # 如果 task_type 为空，返回未记录，不要从 task 对象获取（避免显示修改后的值）
         return "未记录"
 
-    def get_formatted_recipients(self, obj):
+    def get_formatted_recipients(self, obj) -> list:
         """获取格式化的收件人信息"""
         if not obj.recipient_info:
             return []
@@ -650,7 +807,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
                     })
         return recipients
 
-    def get_webhook_bot_info_display(self, obj):
+    def get_webhook_bot_info_display(self, obj) -> dict | None:
         """获取Webhook机器人信息显示"""
         # 检查任务的通知类型是否包含webhook
         if obj.task:
@@ -662,7 +819,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
                 pass
         return None
 
-    def get_notification_target_display(self, obj):
+    def get_notification_target_display(self, obj) -> list:
         """获取通知对象显示 - 返回详细信息"""
         targets = []
 
@@ -719,12 +876,21 @@ class TaskNotificationSettingDetailSerializer(serializers.ModelSerializer):
                   'notify_on_timeout', 'notify_on_error', 'custom_webhook_bots',
                   'custom_recipients', 'webhook_bots_display', 'recipients_detail', 'created_at', 'updated_at']
         read_only_fields = ['created_at', 'updated_at']
+        extra_kwargs = {
+            'custom_webhook_bots': {'write_only': True},
+        }
 
-    def get_notification_type_display(self, obj):
+    def get_notification_type_display(self, obj) -> str:
         """获取通知类型显示"""
         return obj.get_notification_type_display()
 
-    def get_notification_config_detail(self, obj):
+    def validate_custom_webhook_bots(self, value):
+        try:
+            return validate_notification_webhook_bots(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
+    def get_notification_config_detail(self, obj) -> dict | None:
         """获取通知配置详情"""
         config = obj.get_notification_config()
         if config:
@@ -735,7 +901,7 @@ class TaskNotificationSettingDetailSerializer(serializers.ModelSerializer):
             }
         return None
 
-    def get_webhook_bots_display(self, obj):
+    def get_webhook_bots_display(self, obj) -> list:
         """获取自定义webhook机器人显示"""
         custom_bots = obj.custom_webhook_bots or {}
         config_bots = []
@@ -753,7 +919,8 @@ class TaskNotificationSettingDetailSerializer(serializers.ModelSerializer):
                 all_bots.append({
                     'type': bot_type,
                     'name': custom_bots[bot_type].get('name', f'{bot_type}机器人'),
-                    'webhook_url': custom_bots[bot_type].get('webhook_url'),
+                    'webhook_url': redact_webhook_url(custom_bots[bot_type].get('webhook_url')),
+                    'has_secret': bool(custom_bots[bot_type].get('secret')),
                     'enabled': custom_bots[bot_type].get('enabled', True),
                     'source': 'custom'
                 })
@@ -764,14 +931,15 @@ class TaskNotificationSettingDetailSerializer(serializers.ModelSerializer):
                     all_bots.append({
                         'type': bot_type,
                         'name': config_bot['name'],
-                        'webhook_url': config_bot['webhook_url'],
+                        'webhook_url': redact_webhook_url(config_bot.get('webhook_url')),
+                        'has_secret': bool(config_bot.get('secret')),
                         'enabled': config_bot['enabled'],
                         'source': 'config'
                     })
 
         return all_bots
 
-    def get_recipients_detail(self, obj):
+    def get_recipients_detail(self, obj) -> list:
         """获取收件人详情"""
         recipients = []
 
@@ -810,17 +978,34 @@ class AIServiceConfigSerializer(serializers.ModelSerializer):
     service_type_display = serializers.CharField(source='get_service_type_display', read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    api_key_masked = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = AIServiceConfig
         fields = [
             'id', 'name', 'service_type', 'service_type_display',
-            'role', 'role_display', 'api_key', 'base_url', 'model_name',
+            'role', 'role_display', 'api_key', 'api_key_masked', 'base_url', 'model_name',
             'max_tokens', 'temperature', 'is_active', 'created_by',
             'created_by_name', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'created_by']
+        extra_kwargs = {
+            'api_key': {'write_only': True, 'required': False, 'allow_blank': True},
+        }
+
+    def get_api_key_masked(self, obj) -> str:
+        return _mask_secret(getattr(obj, 'api_key', ''))
+
+    def validate(self, attrs):
+        if self.instance is None and not attrs.get('api_key'):
+            raise serializers.ValidationError({'api_key': 'API Key is required.'})
+        return attrs
 
     def create(self, validated_data):
         validated_data['created_by'] = self.context['request'].user
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get('api_key') == '':
+            validated_data.pop('api_key')
+        return super().update(instance, validated_data)

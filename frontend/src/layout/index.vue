@@ -15,6 +15,18 @@
         >
           <!-- AI用例生成模块菜单 -->
           <template v-if="currentModule === 'ai-generation'">
+            <el-menu-item index="/ai-generation/modules">
+              <el-icon><Collection /></el-icon>
+              <span>Module Map</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/assets">
+              <el-icon><DocumentCopy /></el-icon>
+              <span>Unified Assets</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/audit-center">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>Audit Center</span>
+            </el-menu-item>
             <el-sub-menu index="requirement">
               <template #title>
                 <el-icon><MagicStick /></el-icon>
@@ -27,9 +39,29 @@
               <el-icon><Folder /></el-icon>
               <span>{{ $t('menu.projectManagement') }}</span>
             </el-menu-item>
+            <el-menu-item index="/ai-generation/scheduled-jobs">
+              <el-icon><AlarmClock /></el-icon>
+              <span>{{ $t('menu.scheduledTasks') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/ai-testing">
+              <el-icon><VideoPlay /></el-icon>
+              <span>AI Testing</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/knowledge-base">
+              <el-icon><Files /></el-icon>
+              <span>Knowledge Base</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/ocr-service">
+              <el-icon><Search /></el-icon>
+              <span>OCR Service</span>
+            </el-menu-item>
             <el-menu-item index="/ai-generation/testcases">
               <el-icon><Document /></el-icon>
               <span>{{ $t('menu.testCases') }}</span>
+            </el-menu-item>
+            <el-menu-item index="/ai-generation/testsuites">
+              <el-icon><Collection /></el-icon>
+              <span>{{ $t('menu.suiteManagement') }}</span>
             </el-menu-item>
             <el-menu-item index="/ai-generation/versions">
               <el-icon><Flag /></el-icon>
@@ -324,7 +356,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Monitor, Folder, Document, Flag, Check, Collection, VideoPlay,
   DataAnalysis, ChatDotRound, DocumentCopy, Link, MagicStick,
-  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened
+  Odometer, Timer, Setting, AlarmClock, Bell, Aim, Edit, Cpu, ArrowDown, Cellphone, Connection, FolderOpened, Files, Search
 } from '@element-plus/icons-vue'
 import logoSvg from '@/assets/images/logo.svg'
 import logoHomePng from '@/assets/images/logo_home.png'
@@ -376,9 +408,16 @@ const moduleName = computed(() => {
 const breadcrumbTitle = computed(() => {
   const routeMap = {
     // AI用例生成
+    '/ai-generation/modules': 'Module Map',
+    '/ai-generation/assets': 'Unified Assets',
+    '/ai-generation/audit-center': 'Audit Center',
     '/ai-generation/requirement-analysis': t('menu.aiCaseGeneration'),
     '/ai-generation/generated-testcases': t('menu.aiGeneratedTestcases'),
     '/ai-generation/projects': t('menu.projectManagement'),
+    '/ai-generation/scheduled-jobs': t('menu.scheduledTasks'),
+    '/ai-generation/ai-testing': 'AI Testing',
+    '/ai-generation/knowledge-base': 'Knowledge Base',
+    '/ai-generation/ocr-service': 'OCR Service',
     '/ai-generation/testcases': t('menu.testCases'),
     '/ai-generation/versions': t('menu.versionManagement'),
     '/ai-generation/reviews': t('menu.reviewList'),

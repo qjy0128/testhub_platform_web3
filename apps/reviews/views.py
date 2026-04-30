@@ -2,7 +2,7 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Count, Q
 from .models import TestCaseReview, ReviewAssignment, TestCaseReviewComment, ReviewTemplate
 from .serializers import (
     TestCaseReviewSerializer, TestCaseReviewCreateSerializer,
@@ -12,6 +12,7 @@ from .serializers import (
 )
 from apps.testcases.models import TestCase
 from apps.users.models import User
+from apps.projects.unified import accessible_projects_for_user
 
 
 class TestCaseReviewViewSet(viewsets.ModelViewSet):
@@ -23,9 +24,10 @@ class TestCaseReviewViewSet(viewsets.ModelViewSet):
         return TestCaseReviewSerializer
     
     def get_queryset(self):
+        accessible_projects = accessible_projects_for_user(self.request.user)
         queryset = TestCaseReview.objects.select_related('creator').prefetch_related(
             'projects', 'testcases', 'reviewers', 'comments', 'reviewassignment_set__reviewer'
-        )
+        ).filter(projects__in=accessible_projects).distinct()
         
         # 过滤参数
         project_id = self.request.query_params.get('project', None)
@@ -111,12 +113,52 @@ class TestCaseReviewViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def my_reviews(self, request):
         """获取我的评审任务"""
-        reviews = TestCaseReview.objects.filter(
-            reviewers=request.user
-        ).select_related('creator').prefetch_related('projects')
+        reviews = self.get_queryset().filter(reviewers=request.user)
         
         serializer = self.get_serializer(reviews, many=True)
         return Response(serializer.data)
+    @action(detail=False, methods=['get'], url_path='center')
+    def center(self, request):
+        queryset = self.get_queryset()
+        now = timezone.now()
+        open_statuses = ['pending', 'in_progress']
+        status_counts = {
+            item['status']: item['count']
+            for item in queryset.values('status').annotate(count=Count('id')).order_by('status')
+        }
+        priority_counts = {
+            item['priority']: item['count']
+            for item in queryset.values('priority').annotate(count=Count('id')).order_by('priority')
+        }
+        assignment_qs = ReviewAssignment.objects.filter(review__in=queryset)
+        my_assignment_qs = assignment_qs.filter(reviewer=request.user)
+        overdue_qs = queryset.filter(status__in=open_statuses, deadline__lt=now)
+        my_pending_qs = queryset.filter(
+            reviewassignment__reviewer=request.user,
+            reviewassignment__status='pending',
+        ).distinct()
+        active_reviews = queryset.filter(status__in=open_statuses).order_by('deadline', '-created_at')[:20]
+
+        return Response({
+            'summary': {
+                'total': queryset.count(),
+                'open': queryset.filter(status__in=open_statuses).count(),
+                'pending': status_counts.get('pending', 0),
+                'in_progress': status_counts.get('in_progress', 0),
+                'approved': status_counts.get('approved', 0),
+                'rejected': status_counts.get('rejected', 0),
+                'overdue': overdue_qs.count(),
+                'my_pending': my_pending_qs.count(),
+                'assignments_pending': assignment_qs.filter(status='pending').count(),
+                'assignments_completed': assignment_qs.exclude(status='pending').count(),
+                'my_assignments_pending': my_assignment_qs.filter(status='pending').count(),
+            },
+            'status_counts': status_counts,
+            'priority_counts': priority_counts,
+            'overdue_reviews': TestCaseReviewSerializer(overdue_qs.order_by('deadline')[:10], many=True).data,
+            'my_pending_reviews': TestCaseReviewSerializer(my_pending_qs.order_by('deadline', '-created_at')[:10], many=True).data,
+            'active_reviews': TestCaseReviewSerializer(active_reviews, many=True).data,
+        })
 
 
 class TestCaseReviewCommentViewSet(viewsets.ModelViewSet):

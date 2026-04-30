@@ -2,23 +2,39 @@
 
 from pathlib import Path
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-your-secret-key-here')
+def _csv(value):
+    return [item.strip() for item in value.split(',') if item.strip()]
 
-DEBUG = config('DEBUG', default=True, cast=bool)
+
+def _dedupe(values):
+    return list(dict.fromkeys(values))
+
+
+SECRET_KEY = config('SECRET_KEY', default='')
+if not SECRET_KEY or SECRET_KEY.startswith('django-insecure-'):
+    raise ImproperlyConfigured('SECRET_KEY 必须通过环境变量配置，且不能使用 Django 示例密钥')
+
+DEBUG = config('DEBUG', default=False, cast=bool)
+
+APP_AUTOMATION_ALLOWED_SCRCPY_PATHS = _dedupe(
+    config('APP_AUTOMATION_ALLOWED_SCRCPY_PATHS', default='scrcpy', cast=_csv)
+)
 
 # 根据DEBUG模式设置ALLOWED_HOSTS，生产环境不应使用通配符
-if DEBUG:
-    ALLOWED_HOSTS = ['*']
-else:
-    ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1',
-                           cast=lambda v: [s.strip() for s in v.split(',')])
+ALLOWED_HOSTS = config(
+    'ALLOWED_HOSTS',
+    default='localhost,127.0.0.1,[::1]',
+    cast=_csv,
+)
+if not DEBUG and (not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS):
+    raise ImproperlyConfigured('生产环境必须显式配置 ALLOWED_HOSTS，且不能使用通配符')
 
 DJANGO_APPS = [
-    'simpleui',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -26,6 +42,9 @@ DJANGO_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 ]
+
+if config('ENABLE_SIMPLEUI', default=False, cast=bool):
+    DJANGO_APPS.insert(0, 'simpleui')
 
 THIRD_PARTY_APPS = [
     'rest_framework',
@@ -53,6 +72,10 @@ LOCAL_APPS = [
     'apps.ui_automation.apps.UiAutomationConfig',
     'apps.app_automation.apps.AppAutomationConfig',  # APP自动化测试
     'apps.core',
+    'apps.scheduler.apps.SchedulerConfig',
+    'apps.ai_testing.apps.AiTestingConfig',
+    'apps.knowledge_base.apps.KnowledgeBaseConfig',
+    'apps.ocr_service.apps.OcrServiceConfig',
     'apps.data_factory',
 ]
 
@@ -63,9 +86,9 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'backend.middleware.DisableCSRFMiddleware',  # 添加CSRF禁用中间件
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.core.middleware.RequestPerformanceMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -217,64 +240,59 @@ else:
     CSRF_COOKIE_HTTPONLY = True
     CSRF_COOKIE_SAMESITE = 'Strict'
 
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG, cast=bool)
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=0 if DEBUG else 31536000, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG, cast=bool)
+SECURE_HSTS_PRELOAD = config('SECURE_HSTS_PRELOAD', default=not DEBUG, cast=bool)
+X_FRAME_OPTIONS = 'DENY'
+
 # CORS Settings
 cors_origins_str = config('CORS_ALLOWED_ORIGINS', default='')
-parsed_cors_origins = [s.strip() for s in cors_origins_str.split(',') if s.strip()]
+parsed_cors_origins = _csv(cors_origins_str)
+
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'cache-control',  # 添加 SSE 需要的头部
+]
+CORS_EXPOSE_HEADERS = ['Content-Type', 'Cache-Control']
 
 if DEBUG:
     # 开发环境默认允许本地地址，同时合并环境变量里的配置
     # 优先使用环境变量配置的地址，确保服务器IP优先级最高
-    CORS_ALLOWED_ORIGINS = [
+    CORS_ALLOWED_ORIGINS = _dedupe([
         *parsed_cors_origins,  # 环境变量配置的地址优先
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:8080",
         "http://127.0.0.1:8080",
-    ]
-    CORS_ALLOW_CREDENTIALS = True
-    # 支持EventSource (SSE) 的额外CORS头部
-    CORS_ALLOW_HEADERS = [
-        'accept',
-        'accept-encoding',
-        'authorization',
-        'content-type',
-        'dnt',
-        'origin',
-        'user-agent',
-        'x-csrftoken',
-        'x-requested-with',
-        'cache-control',  # 添加 SSE 需要的头部
-    ]
+    ])
 else:
-    # 生产环境 CORS 配置
-    if parsed_cors_origins:
-        # 如果配置了 CORS_ALLOWED_ORIGINS，使用配置的值
-        CORS_ALLOWED_ORIGINS = parsed_cors_origins
-    else:
-        # 如果未配置，允许所有来源（可根据需求调整）
-        CORS_ALLOW_ALL_ORIGINS = True
-
-    CORS_ALLOW_CREDENTIALS = True
-    CORS_ALLOW_HEADERS = [
-        'accept',
-        'accept-encoding',
-        'authorization',
-        'content-type',
-        'dnt',
-        'origin',
-        'user-agent',
-        'x-csrftoken',
-        'x-requested-with',
-        'cache-control',  # 添加 SSE 需要的头部
-    ]
-    # SSE 需要的额外配置
-    CORS_EXPOSE_HEADERS = ['Content-Type', 'Cache-Control']
+    if not parsed_cors_origins:
+        raise ImproperlyConfigured('生产环境必须显式配置 CORS_ALLOWED_ORIGINS')
+    CORS_ALLOWED_ORIGINS = parsed_cors_origins
 
 # CSRF Settings
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+csrf_trusted_origins_str = config('CSRF_TRUSTED_ORIGINS', default='')
+parsed_csrf_trusted_origins = _csv(csrf_trusted_origins_str)
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS = _dedupe([
+        *parsed_csrf_trusted_origins,
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ])
+else:
+    CSRF_TRUSTED_ORIGINS = parsed_csrf_trusted_origins or CORS_ALLOWED_ORIGINS
 
 # Spectacular Settings
 SPECTACULAR_SETTINGS = {
@@ -282,12 +300,96 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Test Case Management Platform API',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'ENUM_NAME_OVERRIDES': {
+        # request/execution/tool enums
+        'ApiRequestTypeEnum': 'apps.api_testing.models.ApiRequest.REQUEST_TYPE_CHOICES',
+        'AppExecutionResultEnum': 'apps.app_automation.models.AppTestSuite.EXECUTION_RESULT_CHOICES',
+        'UiFrameworkEnum': 'apps.ui_automation.models.TestScript.FRAMEWORK_CHOICES',
+        'DataFactoryToolScenarioEnum': 'apps.data_factory.models.DataFactoryRecord.TOOL_SCENARIOS',
+
+        # same field name, different choice sets
+        'UiElementTypeEnum': 'apps.ui_automation.models.Element.ELEMENT_TYPE_CHOICES',
+        'AppElementTypeEnum': 'apps.app_automation.models.AppElement.ELEMENT_TYPE_CHOICES',
+        'UiExecutionModeEnum': [('text', '文本模式'), ('vision', '视觉模式')],
+        'AiTestingExecutionModeEnum': 'apps.ai_testing.models.AiTestingTask.MODE_CHOICES',
+        'UiExecutionStatusEnum': 'apps.ui_automation.models.TestSuite.EXECUTION_STATUS_CHOICES',
+        'AppExecutionStatusEnum': 'apps.app_automation.models.AppTestSuite.EXECUTION_STATUS_CHOICES',
+
+        # notification/task/priority
+        'ApiNotificationTypeEnum': 'apps.api_testing.models.NotificationLog.NOTIFICATION_TYPES',
+        'TaskNotificationTypeEnum': 'apps.api_testing.models.TaskNotificationSetting.NOTIFICATION_TYPES',
+        'UiScheduledNotificationTypeEnum': 'apps.ui_automation.models.UiScheduledTask.NOTIFICATION_TYPE_CHOICES',
+        'UiNotificationTypeEnum': 'apps.ui_automation.models.UiNotificationLog.NOTIFICATION_TYPES',
+        'AppNotificationTypeEnum': 'apps.app_automation.models.AppNotificationLog.NOTIFICATION_TYPES',
+        'ManualPriorityEnum': 'apps.testcases.models.TestCase.PRIORITY_CHOICES',
+        'ReviewPriorityEnum': 'apps.reviews.models.TestCaseReview.PRIORITY_CHOICES',
+        'RequirementPriorityEnum': 'apps.requirement_analysis.models.GeneratedTestCase.PRIORITY_CHOICES',
+        'UiPriorityEnum': 'apps.ui_automation.models.TestCase.PRIORITY_CHOICES',
+        'RequirementTaskTypeEnum': 'apps.requirement_analysis.models.AnalysisTask.TASK_TYPE_CHOICES',
+        'ApiTaskTypeEnum': 'apps.api_testing.models.ScheduledTask.TASK_TYPE_CHOICES',
+        'UiTaskTypeEnum': 'apps.ui_automation.models.UiScheduledTask.TASK_TYPE_CHOICES',
+
+        # status enums used across modules
+        'ProjectStatusEnum': 'apps.projects.models.Project.STATUS_CHOICES',
+        'ManualTestCaseStatusEnum': 'apps.testcases.models.TestCase.STATUS_CHOICES',
+        'TestRunStatusEnum': 'apps.executions.models.TestRun.STATUS_CHOICES',
+        'TestRunCaseStatusEnum': 'apps.executions.models.TestRunCase.STATUS_CHOICES',
+        'ReviewStatusEnum': 'apps.reviews.models.TestCaseReview.STATUS_CHOICES',
+        'ReviewAssignmentStatusEnum': 'apps.reviews.models.ReviewAssignment.STATUS_CHOICES',
+        'RequirementDocumentStatusEnum': 'apps.requirement_analysis.models.RequirementDocument.STATUS_CHOICES',
+        'GeneratedCaseStatusEnum': 'apps.requirement_analysis.models.GeneratedTestCase.STATUS_CHOICES',
+        'RequirementTaskStatusEnum': 'apps.requirement_analysis.models.AnalysisTask.STATUS_CHOICES',
+        'GenerationTaskStatusEnum': 'apps.requirement_analysis.models.TestCaseGenerationTask.STATUS_CHOICES',
+        'ApiProjectStatusEnum': 'apps.api_testing.models.ApiProject.STATUS_CHOICES',
+        'ApiExecutionStatusEnum': 'apps.api_testing.models.TestExecution.EXECUTION_STATUS_CHOICES',
+        'ApiScheduledTaskStatusEnum': 'apps.api_testing.models.ScheduledTask.STATUS_CHOICES',
+        'ApiTaskExecutionStatusEnum': 'apps.api_testing.models.TaskExecutionLog.STATUS_CHOICES',
+        'ApiNotificationStatusEnum': 'apps.api_testing.models.NotificationLog.STATUS_CHOICES',
+        'UiExecutionRecordStatusEnum': 'apps.ui_automation.models.TestExecution.STATUS_CHOICES',
+        'UiCaseStatusEnum': 'apps.ui_automation.models.TestCase.STATUS_CHOICES',
+        'UiCaseExecutionStatusEnum': 'apps.ui_automation.models.TestCaseExecution.STATUS_CHOICES',
+        'WalletSessionStatusEnum': 'apps.ui_automation.models.WalletSession.STATUS_CHOICES',
+        'UiAiExecutionStatusEnum': 'apps.ui_automation.models.AIExecutionRecord.STATUS_CHOICES',
+        'AppDeviceStatusEnum': 'apps.app_automation.models.AppDevice.STATUS_CHOICES',
+        'AppExecutionStatusTrackEnum': 'apps.app_automation.models.AppTestExecution.STATUS_CHOICES',
+        'UnifiedSchedulerRunStatusEnum': 'apps.core.models.UnifiedScheduledJobRun.STATUS_CHOICES',
+        'UnifiedSchedulerAlertStatusEnum': 'apps.core.models.UnifiedSchedulerAlert.STATUS_CHOICES',
+        'AiTestingTaskStatusEnum': 'apps.ai_testing.models.AiTestingTask.STATUS_CHOICES',
+        'AiTestingRunStatusEnum': 'apps.ai_testing.models.AiTestingRun.STATUS_CHOICES',
+        'KnowledgeDocumentStatusEnum': 'apps.knowledge_base.models.KnowledgeDocument.STATUS_CHOICES',
+        'KnowledgeQueryStatusEnum': 'apps.knowledge_base.models.KnowledgeQuery.STATUS_CHOICES',
+        'OcrBatchStatusEnum': 'apps.ocr_service.models.OcrBatch.STATUS_CHOICES',
+    },
 }
+
+# Ensure drf-spectacular extensions are imported and registered.
+import backend.schema_extensions  # noqa: E402,F401
 
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Scheduler backend. Use "django_q2" when django-q2 is installed and configured;
+# otherwise the independent scheduler app falls back to the local dispatcher.
+SCHEDULER_BACKEND = config('SCHEDULER_BACKEND', default='local')
+Q_CLUSTER = {
+    'name': 'testhub',
+    'workers': config('Q_CLUSTER_WORKERS', default=4, cast=int),
+    'timeout': config('Q_CLUSTER_TIMEOUT', default=600, cast=int),
+    'retry': config('Q_CLUSTER_RETRY', default=900, cast=int),
+    'queue_limit': config('Q_CLUSTER_QUEUE_LIMIT', default=50, cast=int),
+    'bulk': config('Q_CLUSTER_BULK', default=10, cast=int),
+    'orm': 'default',
+}
+
+REQUEST_PERFORMANCE_MONITORING_ENABLED = config('REQUEST_PERFORMANCE_MONITORING_ENABLED', default=True, cast=bool)
+REQUEST_PERFORMANCE_SLOW_THRESHOLD_MS = config('REQUEST_PERFORMANCE_SLOW_THRESHOLD_MS', default=1000, cast=int)
+REQUEST_PERFORMANCE_EXCLUDED_PREFIXES = (
+    '/static/',
+    '/media/',
+    '/favicon.ico',
+)
 
 # Channels Configuration
 CHANNEL_LAYERS = {

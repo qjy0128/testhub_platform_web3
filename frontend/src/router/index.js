@@ -1,37 +1,39 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
-// 静态导入常用组件来避免动态导入问题
+// Keep only shell/auth views in the entry chunk; feature pages are lazy-loaded.
 import Login from '@/views/auth/Login.vue'
 import Register from '@/views/auth/Register.vue'
 import Layout from '@/layout/index.vue'
-import ProjectList from '@/views/projects/ProjectList.vue'
 import Home from '@/views/Home.vue'
-import DataFactory from '@/views/data-factory/DataFactory.vue'
-import ApiDashboard from '@/views/api-testing/Dashboard.vue'
-import ApiProjectManagement from '@/views/api-testing/ProjectManagement.vue'
-import ApiInterfaceManagement from '@/views/api-testing/InterfaceManagement.vue'
-import ApiAutomationTesting from '@/views/api-testing/AutomationTesting.vue'
-import ApiRequestHistory from '@/views/api-testing/RequestHistory.vue'
-import ApiEnvironmentManagement from '@/views/api-testing/EnvironmentManagement.vue'
-import ApiReportView from '@/views/api-testing/ReportView.vue'
-import ApiScheduledTasks from '@/views/api-testing/ScheduledTasks.vue'
-import ApiAIServiceConfig from '@/views/api-testing/AIServiceConfig.vue'
-import NotificationLogs from '@/views/notification/NotificationLogs.vue'
-import UiDashboard from '@/views/ui-automation/dashboard/Dashboard.vue'
-import UiProjectList from '@/views/ui-automation/projects/ProjectList.vue'
-import UiElementManagerEnhanced from '@/views/ui-automation/elements/ElementManagerEnhanced.vue'
-import UiTestCaseManager from '@/views/ui-automation/test-cases/TestCaseManager.vue'
-import UiScriptEditorEnhanced from '@/views/ui-automation/scripts/ScriptEditorEnhanced.vue'
-import UiScriptList from '@/views/ui-automation/scripts/ScriptList.vue'
-import UiSuiteList from '@/views/ui-automation/suites/SuiteList.vue'
-import UiExecutionList from '@/views/ui-automation/executions/ExecutionList.vue'
-import UiReportList from '@/views/ui-automation/reports/ReportList.vue'
-import UiScheduledTasks from '@/views/ui-automation/scheduled-tasks/ScheduledTasks.vue'
-import UiNotificationLogs from '@/views/ui-automation/notification/NotificationLogs.vue'
-import UiAITesting from '@/views/ui-automation/ai/AITesting.vue'
-import UiAICaseList from '@/views/ui-automation/ai/AICaseList.vue'
-import UiAIExecutionRecords from '@/views/ui-automation/ai/AIExecutionRecords.vue'
+
+const ProjectList = () => import('@/views/projects/ProjectList.vue')
+const DataFactory = () => import('@/views/data-factory/DataFactory.vue')
+const ApiDashboard = () => import('@/views/api-testing/Dashboard.vue')
+const ApiProjectManagement = () => import('@/views/api-testing/ProjectManagement.vue')
+const ApiInterfaceManagement = () => import('@/views/api-testing/InterfaceManagement.vue')
+const ApiAutomationTesting = () => import('@/views/api-testing/AutomationTesting.vue')
+const ApiRequestHistory = () => import('@/views/api-testing/RequestHistory.vue')
+const ApiEnvironmentManagement = () => import('@/views/api-testing/EnvironmentManagement.vue')
+const ApiReportView = () => import('@/views/api-testing/ReportView.vue')
+const ApiScheduledTasks = () => import('@/views/api-testing/ScheduledTasks.vue')
+const ApiAIServiceConfig = () => import('@/views/api-testing/AIServiceConfig.vue')
+const NotificationLogs = () => import('@/views/notification/NotificationLogs.vue')
+const UiDashboard = () => import('@/views/ui-automation/dashboard/Dashboard.vue')
+const UiProjectList = () => import('@/views/ui-automation/projects/ProjectList.vue')
+const UiElementManagerEnhanced = () => import('@/views/ui-automation/elements/ElementManagerEnhanced.vue')
+const UiTestCaseManager = () => import('@/views/ui-automation/test-cases/TestCaseManager.vue')
+const UiScriptEditorEnhanced = () => import('@/views/ui-automation/scripts/ScriptEditorEnhanced.vue')
+const UiScriptList = () => import('@/views/ui-automation/scripts/ScriptList.vue')
+const UiSuiteList = () => import('@/views/ui-automation/suites/SuiteList.vue')
+const UiExecutionList = () => import('@/views/ui-automation/executions/ExecutionList.vue')
+const UiReportList = () => import('@/views/ui-automation/reports/ReportList.vue')
+const UiScheduledTasks = () => import('@/views/ui-automation/scheduled-tasks/ScheduledTasks.vue')
+const UiNotificationLogs = () => import('@/views/ui-automation/notification/NotificationLogs.vue')
+const UiAITesting = () => import('@/views/ui-automation/ai/AITesting.vue')
+const UiAICaseList = () => import('@/views/ui-automation/ai/AICaseList.vue')
+const UiAIExecutionRecords = () => import('@/views/ui-automation/ai/AIExecutionRecords.vue')
+const AiTesting = () => import('@/views/ai-testing/AiTestingView.vue')
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
@@ -70,7 +72,22 @@ const routes = [
     children: [
       {
         path: '',
-        redirect: 'requirement-analysis'
+        redirect: 'modules'
+      },
+      {
+        path: 'modules',
+        name: 'ModuleMap',
+        component: () => import('@/views/modules/ModuleMap.vue')
+      },
+      {
+        path: 'assets',
+        name: 'UnifiedAssets',
+        component: () => import('@/views/modules/StarAssetDashboard.vue')
+      },
+      {
+        path: 'audit-center',
+        name: 'AuditCenter',
+        component: () => import('@/views/modules/AuditCenterView.vue')
       },
       {
         path: 'requirement-analysis',
@@ -81,6 +98,26 @@ const routes = [
         path: 'projects',
         name: 'Projects',
         component: ProjectList
+      },
+      {
+        path: 'scheduled-jobs',
+        name: 'UnifiedScheduledJobs',
+        component: () => import('@/views/projects/UnifiedScheduledJobs.vue')
+      },
+      {
+        path: 'ai-testing',
+        name: 'AiTesting',
+        component: AiTesting
+      },
+      {
+        path: 'knowledge-base',
+        name: 'KnowledgeBase',
+        component: () => import('@/views/knowledge-base/KnowledgeBaseView.vue')
+      },
+      {
+        path: 'ocr-service',
+        name: 'OcrService',
+        component: () => import('@/views/ocr-service/OcrServiceView.vue')
       },
       {
         path: 'projects/:id',

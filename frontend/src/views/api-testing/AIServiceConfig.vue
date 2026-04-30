@@ -127,7 +127,7 @@ const rules = computed(() => ({
   name: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.configNameRequired'), trigger: 'blur' }],
   service_type: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.serviceTypeRequired'), trigger: 'change' }],
   role: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.roleTypeRequired'), trigger: 'change' }],
-  api_key: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.apiKeyRequired'), trigger: 'blur' }],
+  api_key: editingConfig.value ? [] : [{ required: true, message: t('apiTesting.aiServiceConfig.validation.apiKeyRequired'), trigger: 'blur' }],
   base_url: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.apiBaseUrlRequired'), trigger: 'blur' }],
   model_name: [{ required: true, message: t('apiTesting.aiServiceConfig.validation.modelNameRequired'), trigger: 'blur' }]
 }))
@@ -162,7 +162,7 @@ const editConfig = (config) => {
     name: config.name,
     service_type: config.service_type,
     role: config.role,
-    api_key: config.api_key,
+    api_key: config.api_key_masked || '',
     base_url: config.base_url,
     model_name: config.model_name,
     max_tokens: config.max_tokens,
@@ -183,11 +183,16 @@ const saveConfig = async () => {
 
   saving.value = true
   try {
+    const payload = { ...form }
+    if (editingConfig.value && (!payload.api_key || payload.api_key.includes('*'))) {
+      delete payload.api_key
+    }
+
     if (editingConfig.value) {
-      await api.put(`/api-testing/ai-service-configs/${editingConfig.value.id}/`, form)
+      await api.put(`/api-testing/ai-service-configs/${editingConfig.value.id}/`, payload)
       ElMessage.success(t('apiTesting.aiServiceConfig.messages.updateSuccess'))
     } else {
-      await api.post('/api-testing/ai-service-configs/', form)
+      await api.post('/api-testing/ai-service-configs/', payload)
       ElMessage.success(t('apiTesting.aiServiceConfig.messages.createSuccess'))
     }
     showCreateDialog.value = false

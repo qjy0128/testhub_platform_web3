@@ -1,6 +1,8 @@
 from rest_framework import generics, status, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from django.contrib.auth import login, logout
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -11,6 +13,7 @@ from .serializers import UserSerializer, UserCreateSerializer, LoginSerializer, 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+@extend_schema(responses=OpenApiTypes.OBJECT)
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_current_user(request):
@@ -21,6 +24,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from django.contrib.auth import login, logout
 
+@extend_schema(responses=OpenApiTypes.OBJECT)
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_current_user(request):
@@ -51,6 +55,7 @@ class RegisterView(generics.CreateAPIView):
             'token': token_key
         }, status=status.HTTP_201_CREATED)
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 @csrf_exempt
@@ -72,6 +77,7 @@ def login_view(request):
         'message': '登录成功'
     })
 
+@extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
 @api_view(['POST'])
 @csrf_exempt
 def logout_view(request):
@@ -101,6 +107,7 @@ def logout_view(request):
 
     return Response({'message': '退出成功'})
 
+@extend_schema(responses=OpenApiTypes.OBJECT)
 @api_view(['GET'])
 def profile_view(request):
     if not request.user.is_authenticated:
@@ -112,9 +119,9 @@ def profile_view(request):
 class UserListView(generics.ListCreateAPIView):
     queryset = User.objects.all().order_by('username')
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]
 
 class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = User.objects.all().order_by('username')
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAdminUser]

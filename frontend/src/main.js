@@ -1,8 +1,72 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
+import {
+  ElAlert,
+  ElAside,
+  ElAvatar,
+  ElBreadcrumb,
+  ElBreadcrumbItem,
+  ElButton,
+  ElButtonGroup,
+  ElCard,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElCol,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
+  ElContainer,
+  ElDatePicker,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElDialog,
+  ElDivider,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElHeader,
+  ElIcon,
+  ElImage,
+  ElInput,
+  ElInputNumber,
+  ElLink,
+  ElLoading,
+  ElMain,
+  ElMenu,
+  ElMenuItem,
+  ElOption,
+  ElPagination,
+  ElPopconfirm,
+  ElProgress,
+  ElRadio,
+  ElRadioButton,
+  ElRadioGroup,
+  ElRow,
+  ElScrollbar,
+  ElSegmented,
+  ElSelect,
+  ElSkeleton,
+  ElSlider,
+  ElSpace,
+  ElStatistic,
+  ElSubMenu,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTabPane,
+  ElTabs,
+  ElTag,
+  ElText,
+  ElTimeline,
+  ElTimelineItem,
+  ElTooltip,
+  ElTree,
+  ElUpload
+} from 'element-plus'
 import 'element-plus/dist/index.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import axios from 'axios'
 import { useUserStore } from '@/stores/user'
 import i18n from './locales'
@@ -21,6 +85,72 @@ const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
 
+const elementComponents = [
+  ElAlert,
+  ElAside,
+  ElAvatar,
+  ElBreadcrumb,
+  ElBreadcrumbItem,
+  ElButton,
+  ElButtonGroup,
+  ElCard,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElCol,
+  ElCollapse,
+  ElCollapseItem,
+  ElConfigProvider,
+  ElContainer,
+  ElDatePicker,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElDialog,
+  ElDivider,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElHeader,
+  ElIcon,
+  ElImage,
+  ElInput,
+  ElInputNumber,
+  ElLink,
+  ElMain,
+  ElMenu,
+  ElMenuItem,
+  ElOption,
+  ElPagination,
+  ElPopconfirm,
+  ElProgress,
+  ElRadio,
+  ElRadioButton,
+  ElRadioGroup,
+  ElRow,
+  ElScrollbar,
+  ElSegmented,
+  ElSelect,
+  ElSkeleton,
+  ElSlider,
+  ElSpace,
+  ElStatistic,
+  ElSubMenu,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTabPane,
+  ElTabs,
+  ElTag,
+  ElText,
+  ElTimeline,
+  ElTimelineItem,
+  ElTooltip,
+  ElTree,
+  ElUpload
+]
+
 async function init() {
   try {
     const userStore = useUserStore()
@@ -29,16 +159,11 @@ async function init() {
     // 获取用户信息失败，说明未登录，无需处理
   }
 
-  // 注册所有图标
-  for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-    app.component(key, component)
-  }
-
   app.use(router)
   app.use(i18n)
 
-  // Element Plus 语言由 App.vue 的 el-config-provider 动态配置
-  app.use(ElementPlus)
+  elementComponents.forEach(component => app.use(component))
+  app.use(ElLoading)
 
   app.mount('#app')
 }

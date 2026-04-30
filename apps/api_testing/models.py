@@ -94,6 +94,7 @@ class ApiRequest(models.Model):
     pre_request_script = models.TextField(blank=True, verbose_name='请求前脚本')
     post_request_script = models.TextField(blank=True, verbose_name='请求后脚本')
     assertions = models.JSONField(default=list, verbose_name='断言规则')
+    extractors = models.JSONField(default=list, blank=True, verbose_name='Response extractors')
     order = models.IntegerField(default=0, verbose_name='排序')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='创建者')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
@@ -168,6 +169,8 @@ class TestSuite(models.Model):
     requests = models.ManyToManyField(ApiRequest, through='TestSuiteRequest', verbose_name='包含请求')
     environment = models.ForeignKey(Environment, on_delete=models.SET_NULL, null=True, blank=True,
                                     verbose_name='执行环境')
+    parameterized_enabled = models.BooleanField(default=False, verbose_name='Parameterized execution enabled')
+    parameterized_data = models.JSONField(default=list, blank=True, verbose_name='Parameterized data sets')
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='api_test_suites',
                                    verbose_name='创建者')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')

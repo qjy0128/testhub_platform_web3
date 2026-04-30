@@ -6,10 +6,17 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import SearchFilter
+from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 import logging
 
 from ..models import AppPackage, AppTestCase, AppDevice, AppTestExecution
+from ..permissions import (
+    accessible_app_projects_for_user,
+    user_can_access_app_package,
+    user_can_access_app_project,
+)
 from ..serializers import AppPackageSerializer, AppTestCaseSerializer, AppTestExecutionSerializer
 
 logger = logging.getLogger(__name__)
@@ -29,7 +36,14 @@ class AppPackageViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     pagination_class = AppPagination
     search_fields = ['name', 'package_name']
-    
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return queryset
+        return queryset.filter(created_by=user)
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
@@ -43,10 +57,34 @@ class AppTestCaseViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['project', 'app_package']
     search_fields = ['name']
-    
+
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return queryset
+        accessible_projects = accessible_app_projects_for_user(user)
+        return queryset.filter(
+            Q(project__in=accessible_projects) |
+            Q(project__isnull=True, created_by=user)
+        ).distinct()
+
+    def _validate_write_access(self, serializer):
+        project = serializer.validated_data.get('project', getattr(serializer.instance, 'project', None))
+        app_package = serializer.validated_data.get('app_package', getattr(serializer.instance, 'app_package', None))
+        if project and not user_can_access_app_project(self.request.user, project):
+            raise PermissionDenied('无权访问该 APP 项目')
+        if app_package and not user_can_access_app_package(self.request.user, app_package):
+            raise PermissionDenied('无权访问该应用包名')
+
     def perform_create(self, serializer):
+        self._validate_write_access(serializer)
         serializer.save(created_by=self.request.user)
-    
+
+    def perform_update(self, serializer):
+        self._validate_write_access(serializer)
+        serializer.save()
+
     @action(detail=True, methods=['post'])
     def execute(self, request, pk=None):
         """执行测试用例"""

@@ -839,7 +839,7 @@
           <div style="height: 450px; overflow-y: auto; padding: 10px;">
             <el-table :data="category.variables" style="width: 100%" @row-click="insertVariable" highlight-current-row>
               <el-table-column prop="name" :label="$t('apiTesting.interface.functionName')" width="150">
-                <template #default="{ row }">
+                <template #default>
                   <el-tag size="small">{{ row.name }}</el-tag>
                 </template>
               </el-table-column>
@@ -847,7 +847,7 @@
               <el-table-column prop="syntax" :label="$t('apiTesting.interface.syntax')" min-width="200" show-overflow-tooltip />
               <el-table-column prop="example" :label="$t('apiTesting.interface.example')" min-width="200" show-overflow-tooltip />
               <el-table-column :label="$t('apiTesting.interface.operation')" width="80" fixed="right">
-                <template #default="{ row }">
+                <template #default>
                   <el-button link type="primary" size="small">{{ $t('apiTesting.interface.insert') }}</el-button>
                 </template>
               </el-table-column>
@@ -1599,18 +1599,24 @@ const convertKeyValueArrayToObject = (input) => {
   return obj
 }
 
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+
 const highlightedResponseBody = computed(() => {
   if (!responseBody.value) return ''
 
   try {
+    const escapedBody = escapeHtml(responseBody.value)
     // 简单的 JSON 语法高亮
-    return responseBody.value
+    return escapedBody
       .replace(/"([^"]+)"\s*:/g, '<span style="color: #268bd2;">"$1"</span>:')
       .replace(/:\s*"([^"]+)"/g, ': <span style="color: #2aa198;">"$1"</span>')
       .replace(/:\s*(true|false|null)/g, ': <span style="color: #cb4b16;">$1</span>')
       .replace(/:\s*([0-9]+(\.[0-9]+)?)/g, ': <span style="color: #d33682;">$1</span>')
   } catch (e) {
-    return responseBody.value
+    return escapeHtml(responseBody.value)
   }
 })
 

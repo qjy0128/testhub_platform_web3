@@ -118,6 +118,9 @@
                   <span class="provider-badge" :class="config.model_type">
                     {{ getProviderLabel(config.model_type) }}
                   </span>
+                  <span class="role-badge" :class="getRoleClass(config.role)">
+                    {{ getRoleLabel(config.role) }}
+                  </span>
                   <span class="model-name-badge">{{ config.model_name }}</span>
                   <span class="status-badge" :class="{ active: config.is_active }">
                     {{ config.is_active ? $t('configuration.common.enabled') : $t('configuration.common.disabled') }}
@@ -181,6 +184,17 @@
                 class="form-input"
                 :placeholder="$t('configuration.aiMode.configNamePlaceholder')"
                 required>
+            </div>
+
+            <div class="form-group">
+              <label>执行模式 <span class="required">*</span></label>
+              <select v-model="configForm.role" class="form-select" required>
+                <option value="browser_use_text">文本模式</option>
+                <option value="browser_use_vision">视觉模式</option>
+              </select>
+              <small class="form-hint">
+                视觉模式会启用 browser-use 的页面截图理解能力，可单独配置支持多模态的模型。
+              </small>
             </div>
 
             <div class="form-group">
@@ -432,6 +446,7 @@ const testResult = ref({
 
 const configForm = ref({
   name: '',
+  role: 'browser_use_text',
   model_type: '',
   model_name: '',
   api_key: '',
@@ -478,6 +493,14 @@ const getProviderLabel = (modelType) => {
   const translated = t(key)
   // 如果翻译key存在则返回翻译，否则返回原值
   return translated !== key ? translated : modelType
+}
+
+const getRoleLabel = (role) => {
+  return role === 'browser_use_vision' ? '视觉模式' : '文本模式'
+}
+
+const getRoleClass = (role) => {
+  return role === 'browser_use_vision' ? 'vision' : 'text'
 }
 
 const loadConfigs = async () => {
@@ -723,6 +746,7 @@ const openAddModal = () => {
 const resetForm = () => {
   configForm.value = {
     name: '',
+    role: 'browser_use_text',
     model_type: '',
     model_name: '',
     api_key: '',
@@ -741,6 +765,7 @@ const editConfig = (config) => {
 
   configForm.value = {
     name: config.name,
+    role: config.role || 'browser_use_text',
     model_type: config.model_type,
     model_name: config.model_name,
     api_key: maskedKey, // 显示与原API Key相同长度的掩码
@@ -760,6 +785,7 @@ const onModelTypeChange = () => {
 const saveConfig = async () => {
   const requiredFields = [
     { name: 'name', value: configForm.value.name },
+    { name: 'role', value: configForm.value.role },
     { name: 'model_type', value: configForm.value.model_type },
     { name: 'model_name', value: configForm.value.model_name },
     { name: 'api_key', value: configForm.value.api_key }
@@ -1127,7 +1153,7 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-.provider-badge, .model-name-badge, .status-badge {
+.provider-badge, .role-badge, .model-name-badge, .status-badge {
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 0.8rem;
@@ -1167,6 +1193,16 @@ onMounted(() => {
 .model-name-badge {
   background: #f3e5f5;
   color: #7b1fa2;
+}
+
+.role-badge.text {
+  background: #eef5ff;
+  color: #1d4ed8;
+}
+
+.role-badge.vision {
+  background: #ecfdf5;
+  color: #047857;
 }
 
 .status-badge {

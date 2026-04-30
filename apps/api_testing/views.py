@@ -1,7 +1,8 @@
-from rest_framework import viewsets, status
+from rest_framework import serializers, viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated, SAFE_METHODS
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
@@ -12,6 +13,8 @@ from django.http import HttpResponse, FileResponse, Http404, HttpResponseNotFoun
 from django.views.static import serve
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
+from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_url
+from apps.core.url_safety import validate_outbound_http_url
 import requests
 import time
 import os
@@ -40,7 +43,9 @@ from .serializers import (
 
 logger = logging.getLogger(__name__)
 
-from .utils import execute_assertions
+from .utils import execute_assertions, validate_api_request_url
+from .extractors import extract_response_variables
+from .import_export import export_openapi, import_har, import_postman_collection
 from .operation_logger import log_operation
 from .variable_resolver import VariableResolver
 from .serializers import (
@@ -52,6 +57,43 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+def accessible_api_projects_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return ApiProject.objects.none()
+    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+        return ApiProject.objects.all()
+    return ApiProject.objects.filter(
+        models.Q(owner=user) | models.Q(members=user)
+    ).distinct()
+
+
+def accessible_api_requests_for_user(user):
+    projects = accessible_api_projects_for_user(user)
+    if not getattr(user, 'is_authenticated', False):
+        return ApiRequest.objects.none()
+    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+        return ApiRequest.objects.all()
+    return ApiRequest.objects.filter(
+        models.Q(collection__project__in=projects) |
+        models.Q(collection__isnull=True, created_by=user)
+    ).distinct()
+
+
+def accessible_environments_for_user(user):
+    if not getattr(user, 'is_authenticated', False):
+        return Environment.objects.none()
+    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+        return Environment.objects.all()
+    return Environment.objects.filter(
+        models.Q(scope='GLOBAL') |
+        models.Q(scope='LOCAL', project__in=accessible_api_projects_for_user(user))
+    ).distinct()
+
+
+def is_api_testing_admin(user):
+    return getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)
 
 
 from rest_framework.pagination import PageNumberPagination
@@ -73,10 +115,7 @@ class ApiProjectViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        user = self.request.user
-        return ApiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
+        return accessible_api_projects_for_user(self.request.user)
     
     def perform_create(self, serializer):
         """创建项目时记录日志"""
@@ -227,6 +266,47 @@ class ApiProjectViewSet(viewsets.ModelViewSet):
             order=2
         )
 
+    @action(detail=True, methods=['post'], url_path='import-postman')
+    def import_postman(self, request, pk=None):
+        project = self.get_object()
+        payload = request.data.get('collection') if isinstance(request.data, dict) else None
+        payload = payload or request.data
+        if not isinstance(payload, dict) or not payload.get('item'):
+            return Response({'detail': 'Invalid Postman collection.'}, status=status.HTTP_400_BAD_REQUEST)
+        result = import_postman_collection(project, payload, request.user)
+        log_operation(
+            operation_type='create',
+            resource_type='project',
+            resource_id=project.id,
+            resource_name=project.name,
+            description='Imported Postman collection',
+            user=request.user,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='import-har')
+    def import_har(self, request, pk=None):
+        project = self.get_object()
+        payload = request.data.get('har') if isinstance(request.data, dict) else None
+        payload = payload or request.data
+        if not isinstance(payload, dict) or 'log' not in payload:
+            return Response({'detail': 'Invalid HAR payload.'}, status=status.HTTP_400_BAD_REQUEST)
+        result = import_har(project, payload, request.user)
+        log_operation(
+            operation_type='create',
+            resource_type='project',
+            resource_id=project.id,
+            resource_name=project.name,
+            description='Imported HAR capture',
+            user=request.user,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='export-openapi')
+    def export_openapi(self, request, pk=None):
+        project = self.get_object()
+        return Response(export_openapi(project))
+
 
 class ApiCollectionViewSet(viewsets.ModelViewSet):
     queryset = ApiCollection.objects.all()
@@ -236,11 +316,8 @@ class ApiCollectionViewSet(viewsets.ModelViewSet):
     filterset_fields = ['project', 'parent']
     
     def get_queryset(self):
-        user = self.request.user
         return ApiCollection.objects.filter(
-            project__in=ApiProject.objects.filter(
-                models.Q(owner=user) | models.Q(members=user)
-            )
+            project__in=accessible_api_projects_for_user(self.request.user)
         ).distinct()
 
     def perform_create(self, serializer):
@@ -287,23 +364,7 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        # 获取用户有权限的项目
-        accessible_projects = ApiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        )
-
-        # 查询两种接口：
-        # 1. 关联到集合的接口（集合所属项目是用户有权限的）
-        # 2. 或者是用户创建的且没有关联集合的接口
-        queryset = ApiRequest.objects.filter(
-            models.Q(
-                collection__project__in=accessible_projects
-            ) | models.Q(
-                collection__isnull=True,
-                created_by=user
-            )
-        ).distinct()
-
+        queryset = accessible_api_requests_for_user(user)
         project_id = self.request.query_params.get('project')
         if project_id:
             # 如果指定了项目，则只查询该项目下的接口（包括未关联集合但创建者是当前用户的）
@@ -354,6 +415,7 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
         """执行API请求"""
         api_request = self.get_object()
         environment_id = request.data.get('environment_id')
+        env = None
         
         try:
             # 创建变量解析器
@@ -362,7 +424,10 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
             # 解析环境变量
             variables = {}
             if environment_id:
-                env = Environment.objects.get(id=environment_id)
+                try:
+                    env = accessible_environments_for_user(request.user).get(id=environment_id)
+                except Environment.DoesNotExist:
+                    return Response({'error': 'Environment not found.'}, status=status.HTTP_404_NOT_FOUND)
                 variables.update(env.variables)
             
             # 使用前端发送的更新后的数据，如果没有则使用数据库中的数据
@@ -375,6 +440,7 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
             # 替换URL中的变量（先解析动态函数，再替换环境变量）
             url = self._replace_variables(request_url or '', variables)
             url = resolver.resolve(url)
+            url = validate_api_request_url(url)
             
             # 准备请求头
             headers = {}
@@ -437,7 +503,8 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
                     headers=headers,
                     params=params,
                     data=body_data,
-                    timeout=30
+                    timeout=30,
+                    allow_redirects=False
                 )
             else:
                 # json 类型使用 json 参数，自动序列化
@@ -447,7 +514,8 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
                     headers=headers,
                     params=params,
                     json=body_data,
-                    timeout=30
+                    timeout=30,
+                    allow_redirects=False
                 )
             end_time = time.time()
             
@@ -459,11 +527,18 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
                 if assertion.get('type') == 'response_time':
                     assertion['actual_time'] = response_time
             assertions_results = execute_assertions(response, assertions)
+            extracted_variables, extractor_results = extract_response_variables(
+                response,
+                request.data.get('extractors', api_request.extractors) or [],
+            )
+            if environment_id and extracted_variables:
+                env.variables = {**(env.variables or {}), **extracted_variables}
+                env.save(update_fields=['variables', 'updated_at'])
             
             # 保存请求历史
             history = RequestHistory.objects.create(
                 request=api_request,
-                environment_id=environment_id,
+                environment=env,
                 request_data={
                     'url': url,
                     'method': request_method,
@@ -474,7 +549,9 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
                 response_data={
                     'headers': dict(response.headers),
                     'body': response.text,
-                    'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None
+                    'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None,
+                    'extracted_variables': extracted_variables,
+                    'extractor_results': extractor_results,
                 },
                 status_code=response.status_code,
                 response_time=response_time,
@@ -493,6 +570,8 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
             # 返回包含断言结果的数据
             history_data = RequestHistorySerializer(history).data
             history_data['assertions_results'] = assertions_results
+            history_data['extracted_variables'] = extracted_variables
+            history_data['extractor_results'] = extractor_results
             
             return Response(history_data)
             
@@ -500,7 +579,7 @@ class ApiRequestViewSet(viewsets.ModelViewSet):
             # 保存错误历史
             history = RequestHistory.objects.create(
                 request=api_request,
-                environment_id=environment_id,
+                environment=env,
                 request_data={
                     'url': api_request.url,
                     'method': api_request.method,
@@ -560,21 +639,20 @@ class EnvironmentViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        user = self.request.user
-        return Environment.objects.filter(
-            models.Q(scope='GLOBAL') | 
-            models.Q(
-                scope='LOCAL',
-                project__in=ApiProject.objects.filter(
-                    models.Q(owner=user) | models.Q(members=user)
-                )
-            )
-        ).distinct().order_by('-created_at')
+        queryset = accessible_environments_for_user(self.request.user)
+        if self.request.method not in SAFE_METHODS and not is_api_testing_admin(self.request.user):
+            queryset = queryset.exclude(scope='GLOBAL')
+        return queryset.order_by('-created_at')
+
+    def _ensure_global_environment_write_allowed(self, scope):
+        if scope == 'GLOBAL' and not is_api_testing_admin(self.request.user):
+            raise PermissionDenied('Only administrators can modify global environments.')
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
         """激活环境"""
         environment = self.get_object()
+        self._ensure_global_environment_write_allowed(environment.scope)
         
         # 如果是局部环境，取消同项目下其他环境的激活状态
         if environment.scope == 'LOCAL' and environment.project:
@@ -593,6 +671,7 @@ class EnvironmentViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """创建环境时记录日志"""
+        self._ensure_global_environment_write_allowed(serializer.validated_data.get('scope'))
         instance = serializer.save()
         log_operation(
             operation_type='create',
@@ -604,6 +683,8 @@ class EnvironmentViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         """更新环境时记录日志"""
+        next_scope = serializer.validated_data.get('scope', serializer.instance.scope)
+        self._ensure_global_environment_write_allowed(next_scope)
         instance = serializer.save()
         log_operation(
             operation_type='edit',
@@ -615,6 +696,7 @@ class EnvironmentViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         """删除环境时记录日志"""
+        self._ensure_global_environment_write_allowed(instance.scope)
         log_operation(
             operation_type='delete',
             resource_type='environment',
@@ -637,9 +719,7 @@ class RequestHistoryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         return RequestHistory.objects.filter(
-            request__collection__project__in=ApiProject.objects.filter(
-                models.Q(owner=user) | models.Q(members=user)
-            )
+            request__in=accessible_api_requests_for_user(user)
         ).select_related(
             'request', 'environment', 'executed_by',
             'request__created_by', 'environment__created_by', 'environment__project'
@@ -671,11 +751,8 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
     filterset_fields = ['project']
     
     def get_queryset(self):
-        user = self.request.user
         return TestSuite.objects.filter(
-            project__in=ApiProject.objects.filter(
-                models.Q(owner=user) | models.Q(members=user)
-            )
+            project__in=accessible_api_projects_for_user(self.request.user)
         ).distinct()
 
     @action(detail=True, methods=['post'])
@@ -684,6 +761,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         test_suite = self.get_object()
         
         try:
+            runtime_variables = request.data.get('variables') or {}
             # 创建执行记录
             execution = TestExecution.objects.create(
                 test_suite=test_suite,
@@ -717,10 +795,12 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                     variables = {}
                     if test_suite.environment:
                         variables.update(test_suite.environment.variables)
+                    variables.update(runtime_variables)
                     
                     # 替换URL中的变量（先解析动态函数，再替换环境变量）
                     url = self._replace_variables(api_request.url, variables)
                     url = resolver.resolve(url)
+                    url = validate_api_request_url(url)
 
                     # 准备请求头
                     headers = {}
@@ -760,7 +840,8 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                         headers=headers,
                         params=params,
                         json=body_data,
-                        timeout=30
+                        timeout=30,
+                        allow_redirects=False
                     )
                     end_time = time.time()
                     response_time = (end_time - start_time) * 1000
@@ -774,6 +855,12 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                     
                     # 使用共享的断言执行方法
                     assertions_results = execute_assertions(response, assertions)
+                    extracted_variables, extractor_results = extract_response_variables(
+                        response,
+                        api_request.extractors or [],
+                    )
+                    if extracted_variables:
+                        runtime_variables.update(extracted_variables)
                     
                     # 检查所有断言是否通过
                     passed = True
@@ -810,7 +897,9 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                         'response_time': response_time,
                         'passed': passed,
                         'error': error_message,
-                        'assertions_results': assertions_results
+                        'assertions_results': assertions_results,
+                        'extracted_variables': extracted_variables,
+                        'extractor_results': extractor_results
                     })
                     
                     # 保存请求历史
@@ -827,7 +916,9 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
                         response_data={
                             'headers': dict(response.headers),
                             'body': response.text,
-                            'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None
+                            'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None,
+                            'extracted_variables': extracted_variables,
+                            'extractor_results': extractor_results,
                         },
                         status_code=response.status_code,
                         response_time=response_time,
@@ -911,7 +1002,7 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
         
         try:
             for request_id in request_ids:
-                api_request = ApiRequest.objects.get(id=request_id)
+                api_request = accessible_api_requests_for_user(request.user).get(id=request_id)
                 TestSuiteRequest.objects.get_or_create(
                     test_suite=test_suite,
                     request=api_request,
@@ -924,8 +1015,29 @@ class TestSuiteViewSet(viewsets.ModelViewSet):
             
             return Response({'message': '添加成功'})
             
+        except ApiRequest.DoesNotExist:
+            return Response({'error': 'API request not found.'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get', 'post'], url_path='parameterized-views')
+    def parameterized_views(self, request, pk=None):
+        test_suite = self.get_object()
+        if request.method == 'POST':
+            data_sets = request.data.get('data_sets', [])
+            if not isinstance(data_sets, list):
+                return Response({'detail': 'data_sets must be a list.'}, status=status.HTTP_400_BAD_REQUEST)
+            test_suite.parameterized_enabled = bool(request.data.get('enabled', True))
+            test_suite.parameterized_data = data_sets
+            test_suite.save(update_fields=['parameterized_enabled', 'parameterized_data', 'updated_at'])
+
+        return Response({
+            'enabled': test_suite.parameterized_enabled,
+            'data_sets': test_suite.parameterized_data or [],
+            'count': len(test_suite.parameterized_data or []),
+            'execute_hint': f'/api/api-testing/test-suites/{test_suite.id}/execute/',
+            'variable_payload_example': {'variables': (test_suite.parameterized_data or [{}])[0] if (test_suite.parameterized_data or []) else {}},
+        })
     
     def _replace_variables(self, text, variables):
         """替换文本中的变量"""
@@ -972,11 +1084,8 @@ class TestSuiteRequestViewSet(viewsets.ModelViewSet):
     filterset_fields = ['test_suite', 'enabled']
     
     def get_queryset(self):
-        user = self.request.user
         return TestSuiteRequest.objects.filter(
-            test_suite__project__in=ApiProject.objects.filter(
-                models.Q(owner=user) | models.Q(members=user)
-            )
+            test_suite__project__in=accessible_api_projects_for_user(self.request.user)
         ).distinct()
 
 
@@ -990,11 +1099,8 @@ class TestExecutionViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardPagination
     
     def get_queryset(self):
-        user = self.request.user
         return TestExecution.objects.filter(
-            test_suite__project__in=ApiProject.objects.filter(
-                models.Q(owner=user) | models.Q(members=user)
-            )
+            test_suite__project__in=accessible_api_projects_for_user(self.request.user)
         ).distinct()
     
     @action(detail=True, methods=['post'], url_path='generate-allure-report')
@@ -2081,7 +2187,14 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                     continue
 
                 bot_type = bot.get('type', 'unknown')
-                webhook_url = bot['webhook_url']
+                try:
+                    webhook_url = validate_notification_webhook_url(
+                        bot['webhook_url'],
+                        bot_type=bot_type,
+                    )
+                except ValueError as exc:
+                    logger.warning("Skipping unsafe webhook URL for %s bot: %s", bot_type, exc)
+                    continue
                 logger.info(f"发送通知到 {bot_type} 机器人: {bot.get('name', 'Unknown')}")
 
                 # 根据机器人类型构造消息格式
@@ -2162,7 +2275,7 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                         logger.info(f"钉钉机器人签名验证 - 时间戳: {timestamp}")
                         logger.info(f"签名字符串: {string_to_sign}")
                         logger.info(f"生成的签名: {sign}")
-                        logger.info(f"最终URL: {webhook_url}")
+                        logger.info("DingTalk signed webhook URL prepared for %s bot.", bot_type)
                     else:
                         logger.info("钉钉机器人未配置签名密钥，使用无签名模式")
                 else:  # 通用格式
@@ -2194,7 +2307,7 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                         webhook_bot_info={
                             'bot_type': bot_type,
                             'bot_name': bot.get('name', 'Unknown'),
-                            'webhook_url': webhook_url[:50] + '...' if len(webhook_url) > 50 else webhook_url
+                            'webhook_url': redact_webhook_url(webhook_url)
                         },
                         notification_content=json.dumps(message_data, ensure_ascii=False),
                         status='success',
@@ -2222,7 +2335,7 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                             webhook_bot_info={
                                 'bot_type': bot_type,
                                 'bot_name': bot.get('name', 'Unknown'),
-                                'webhook_url': webhook_url[:50] + '...' if len(webhook_url) > 50 else webhook_url
+                                'webhook_url': redact_webhook_url(webhook_url)
                             },
                             notification_content=json.dumps(message_data, ensure_ascii=False),
                             status='failed',
@@ -2270,16 +2383,13 @@ class NotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
+        accessible_projects = accessible_api_projects_for_user(user)
         # 修复查询逻辑：通过任务的创建者或相关项目过滤通知日志
         return NotificationLog.objects.filter(
             models.Q(
-                task__test_suite__project__in=ApiProject.objects.filter(
-                    models.Q(owner=user) | models.Q(members=user)
-                )
+                task__test_suite__project__in=accessible_projects
             ) | models.Q(
-                task__api_request__collection__project__in=ApiProject.objects.filter(
-                    models.Q(owner=user) | models.Q(members=user)
-                )
+                task__api_request__collection__project__in=accessible_projects
             ) | models.Q(
                 task__created_by=user
             )
@@ -2304,15 +2414,12 @@ class TaskNotificationSettingViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
+        accessible_projects = accessible_api_projects_for_user(user)
         return TaskNotificationSetting.objects.filter(
             models.Q(
-                task__test_suite__project__in=ApiProject.objects.filter(
-                    models.Q(owner=user) | models.Q(members=user)
-                )
+                task__test_suite__project__in=accessible_projects
             ) | models.Q(
-                task__api_request__collection__project__in=ApiProject.objects.filter(
-                    models.Q(owner=user) | models.Q(members=user)
-                )
+                task__api_request__collection__project__in=accessible_projects
             ) | models.Q(
                 task__created_by=user
             )
@@ -2347,12 +2454,19 @@ class OperationLogViewSet(viewsets.ReadOnlyModelViewSet):
         """只返回当前用户相关的操作日志"""
         user = self.request.user
         # 可以根据需要调整权限逻辑，这里返回所有日志
-        return OperationLog.objects.all().order_by('-created_at')
+        if is_api_testing_admin(user):
+            return OperationLog.objects.all().order_by('-created_at')
+        return OperationLog.objects.filter(user=user).order_by('-created_at')
+
+
+class ApiDashboardSchemaSerializer(serializers.Serializer):
+    pass
 
 
 class ApiDashboardViewSet(viewsets.ViewSet):
     """API测试仪表盘视图集"""
     permission_classes = [IsAuthenticated]
+    serializer_class = ApiDashboardSchemaSerializer
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
@@ -2360,9 +2474,7 @@ class ApiDashboardViewSet(viewsets.ViewSet):
         user = request.user
         
         # 获取用户可访问的项目ID列表
-        accessible_projects = ApiProject.objects.filter(
-            models.Q(owner=user) | models.Q(members=user)
-        ).distinct()
+        accessible_projects = accessible_api_projects_for_user(user)
         project_ids = accessible_projects.values_list('id', flat=True)
 
         # 统计数据
@@ -2406,6 +2518,28 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
         user = self.request.user
         return AIServiceConfig.objects.filter(created_by=user)
 
+    def _chat_completions_url(self, base_url):
+        safe_base_url = validate_outbound_http_url(base_url, label='AI service base URL').rstrip('/')
+        return f"{safe_base_url}/chat/completions"
+
+    def _get_accessible_api_request(self, request_id):
+        return accessible_api_requests_for_user(self.request.user).get(id=request_id)
+
+    def perform_create(self, serializer):
+        try:
+            validate_outbound_http_url(serializer.validated_data.get('base_url'), label='AI service base URL')
+        except ValueError as exc:
+            raise serializers.ValidationError({'base_url': str(exc)})
+        serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        base_url = serializer.validated_data.get('base_url', serializer.instance.base_url)
+        try:
+            validate_outbound_http_url(base_url, label='AI service base URL')
+        except ValueError as exc:
+            raise serializers.ValidationError({'base_url': str(exc)})
+        serializer.save()
+
     @action(detail=False, methods=['post'])
     def test_connection(self, request):
         """测试AI服务连接"""
@@ -2431,7 +2565,7 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             }
 
             response = requests.post(
-                f"{config.base_url}/chat/completions",
+                self._chat_completions_url(config.base_url),
                 headers=headers,
                 json=test_data,
                 timeout=10
@@ -2445,6 +2579,8 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
                     'details': response.text
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except requests.exceptions.Timeout:
             return Response({'error': '连接超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:
@@ -2460,12 +2596,12 @@ class AIServiceConfigViewSet(viewsets.ModelViewSet):
             return Response({'error': '请提供请求ID'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            api_request = ApiRequest.objects.get(id=request_id)
+            api_request = self._get_accessible_api_request(request_id)
         except ApiRequest.DoesNotExist:
             return Response({'error': '请求不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            config = AIServiceConfig.objects.filter(
+            config = self.get_queryset().filter(
                 role='description',
                 is_active=True
             ).first()
@@ -2532,7 +2668,7 @@ URL参数:
             }
 
             response = requests.post(
-                f"{config.base_url}/chat/completions",
+                self._chat_completions_url(config.base_url),
                 headers=headers,
                 json=ai_data,
                 timeout=30
@@ -2552,6 +2688,8 @@ URL参数:
                     'details': response.text
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except requests.exceptions.Timeout:
             return Response({'error': 'AI服务调用超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:
@@ -2568,7 +2706,7 @@ URL参数:
             return Response({'error': '请提供数据结构定义'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            config = AIServiceConfig.objects.filter(
+            config = self.get_queryset().filter(
                 role='mock_data',
                 is_active=True
             ).first()
@@ -2604,7 +2742,7 @@ URL参数:
             }
 
             response = requests.post(
-                f"{config.base_url}/chat/completions",
+                self._chat_completions_url(config.base_url),
                 headers=headers,
                 json=ai_data,
                 timeout=30
@@ -2624,6 +2762,8 @@ URL参数:
                     'details': response.text
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except requests.exceptions.Timeout:
             return Response({'error': 'AI服务调用超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:
@@ -2639,7 +2779,7 @@ URL参数:
             return Response({'error': '请提供参数列表'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            config = AIServiceConfig.objects.filter(
+            config = self.get_queryset().filter(
                 role='naming',
                 is_active=True
             ).first()
@@ -2680,7 +2820,7 @@ URL参数:
             }
 
             response = requests.post(
-                f"{config.base_url}/chat/completions",
+                self._chat_completions_url(config.base_url),
                 headers=headers,
                 json=ai_data,
                 timeout=30
@@ -2700,6 +2840,8 @@ URL参数:
                     'details': response.text
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except requests.exceptions.Timeout:
             return Response({'error': 'AI服务调用超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:
@@ -2715,12 +2857,12 @@ URL参数:
             return Response({'error': '请提供请求ID'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            api_request = ApiRequest.objects.get(id=request_id)
+            api_request = self._get_accessible_api_request(request_id)
         except ApiRequest.DoesNotExist:
             return Response({'error': '请求不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            config = AIServiceConfig.objects.filter(
+            config = self.get_queryset().filter(
                 role='doc_extractor',
                 is_active=True
             ).first()
@@ -2767,7 +2909,7 @@ URL参数: {json.dumps(request_data['params'], ensure_ascii=False)}
             }
 
             response = requests.post(
-                f"{config.base_url}/chat/completions",
+                self._chat_completions_url(config.base_url),
                 headers=headers,
                 json=ai_data,
                 timeout=30
@@ -2783,6 +2925,8 @@ URL参数: {json.dumps(request_data['params'], ensure_ascii=False)}
                     'details': response.text
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except requests.exceptions.Timeout:
             return Response({'error': 'AI服务调用超时'}, status=status.HTTP_408_REQUEST_TIMEOUT)
         except requests.exceptions.RequestException as e:

@@ -15,7 +15,11 @@ User = get_user_model()
 
 class WalletBrowserConfigApiTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='wallet-api-user', password='test-password')
+        self.user = User.objects.create_user(
+            username='wallet-api-user',
+            password='test-password',
+            is_staff=True,
+        )
         self.client.force_login(self.user)
 
     @patch(

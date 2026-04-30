@@ -5,11 +5,18 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.filters import SearchFilter
+from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 import logging
 
 from ..models import AppTestSuite, AppTestSuiteCase, AppTestCase, AppDevice, AppTestExecution
 from .test_case_views import AppPagination
+from ..permissions import (
+    accessible_app_projects_for_user,
+    user_can_access_app_case,
+    user_can_access_app_project,
+)
 from ..serializers import (
     AppTestSuiteSerializer,
     AppTestSuiteCreateSerializer,
@@ -37,8 +44,49 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
             return AppTestSuiteUpdateSerializer
         return AppTestSuiteSerializer
 
+    def get_queryset(self):
+        user = self.request.user
+        queryset = super().get_queryset()
+        if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+            return queryset
+        accessible_projects = accessible_app_projects_for_user(user)
+        return queryset.filter(
+            Q(project__in=accessible_projects) |
+            Q(project__isnull=True, created_by=user)
+        ).distinct()
+
+    def _validate_project_access(self, project):
+        if project and not user_can_access_app_project(self.request.user, project):
+            raise PermissionDenied('无权访问该 APP 项目')
+
+    def _get_accessible_test_case(self, test_case_id):
+        try:
+            test_case = AppTestCase.objects.select_related('project').get(pk=test_case_id)
+        except AppTestCase.DoesNotExist as exc:
+            raise PermissionDenied('无权访问该测试用例') from exc
+
+        if not user_can_access_app_case(self.request.user, test_case):
+            raise PermissionDenied('无权访问该测试用例')
+        return test_case
+
+    def _validate_suite_case_binding(self, suite_project, test_case):
+        if suite_project and test_case.project_id != suite_project.id:
+            raise PermissionDenied('测试用例不属于该 APP 项目')
+
+    def _validate_write_access(self, serializer):
+        project = serializer.validated_data.get('project', getattr(serializer.instance, 'project', None))
+        self._validate_project_access(project)
+        for test_case_id in serializer.validated_data.get('test_case_ids', []):
+            test_case = self._get_accessible_test_case(test_case_id)
+            self._validate_suite_case_binding(project, test_case)
+
     def perform_create(self, serializer):
+        self._validate_write_access(serializer)
         serializer.save(created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        self._validate_write_access(serializer)
+        serializer.save()
 
     # ---------- 用例管理 ----------
 
@@ -61,6 +109,9 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
             return Response({'success': False, 'message': '请提供 test_case_id'},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        test_case = self._get_accessible_test_case(test_case_id)
+        self._validate_suite_case_binding(suite.project, test_case)
+
         # 默认排在最后
         if order is None:
             max_order = suite.suite_cases.order_by('-order').values_list('order', flat=True).first()
@@ -69,7 +120,7 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
         try:
             sc = AppTestSuiteCase.objects.create(
                 test_suite=suite,
-                test_case_id=test_case_id,
+                test_case=test_case,
                 order=order
             )
             serializer = AppTestSuiteCaseSerializer(sc)
@@ -88,6 +139,11 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
         if not test_case_ids:
             return Response({'success': False, 'message': '请提供 test_case_ids'},
                             status=status.HTTP_400_BAD_REQUEST)
+        try:
+            test_case_ids = [int(tc_id) for tc_id in test_case_ids]
+        except (TypeError, ValueError):
+            return Response({'success': False, 'message': 'test_case_ids 必须是数字列表'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         max_order = suite.suite_cases.order_by('-order').values_list('order', flat=True).first()
         current_order = (max_order or 0) + 1
@@ -97,9 +153,11 @@ class AppTestSuiteViewSet(viewsets.ModelViewSet):
         added = 0
         for tc_id in test_case_ids:
             if tc_id not in existing_ids:
+                test_case = self._get_accessible_test_case(tc_id)
+                self._validate_suite_case_binding(suite.project, test_case)
                 AppTestSuiteCase.objects.create(
                     test_suite=suite,
-                    test_case_id=tc_id,
+                    test_case=test_case,
                     order=current_order
                 )
                 current_order += 1

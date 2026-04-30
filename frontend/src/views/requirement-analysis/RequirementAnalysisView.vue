@@ -25,7 +25,7 @@
           <div class="group-label">{{ $t('configGuide.modelConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('writer_model')">
-              <span class="status-symbol" v-html="getStatusSymbol('writer_model')"></span>
+              <span class="status-symbol" :class="getStatusSymbolClass('writer_model')">{{ getStatusSymbol('writer_model') }}</span>
               <span class="config-label">{{ $t('configGuide.caseWriter') }}</span>
               <span class="config-name" v-if="configStatus.writer_model.name">{{ configStatus.writer_model.name }}</span>
               <span class="status-text" v-if="!configStatus.writer_model.configured">{{ $t('configGuide.unconfigured') }}</span>
@@ -33,7 +33,7 @@
             </div>
 
             <div class="config-item-inline" :class="getConfigItemClass('reviewer_model')">
-              <span class="status-symbol" v-html="getStatusSymbol('reviewer_model')"></span>
+              <span class="status-symbol" :class="getStatusSymbolClass('reviewer_model')">{{ getStatusSymbol('reviewer_model') }}</span>
               <span class="config-label">{{ $t('configGuide.caseReviewer') }}</span>
               <span class="config-name" v-if="configStatus.reviewer_model.name">{{ configStatus.reviewer_model.name }}</span>
               <span class="status-text" v-if="!configStatus.reviewer_model.configured">{{ $t('configGuide.unconfigured') }}</span>
@@ -47,7 +47,7 @@
           <div class="group-label">{{ $t('configGuide.promptConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('writer_prompt')">
-              <span class="status-symbol" v-html="getStatusSymbol('writer_prompt')"></span>
+              <span class="status-symbol" :class="getStatusSymbolClass('writer_prompt')">{{ getStatusSymbol('writer_prompt') }}</span>
               <span class="config-label">{{ $t('configGuide.caseWriter') }}</span>
               <span class="config-name" v-if="configStatus.writer_prompt.name">{{ configStatus.writer_prompt.name }}</span>
               <span class="status-text" v-if="!configStatus.writer_prompt.configured">{{ $t('configGuide.unconfigured') }}</span>
@@ -55,7 +55,7 @@
             </div>
 
             <div class="config-item-inline" :class="getConfigItemClass('reviewer_prompt')">
-              <span class="status-symbol" v-html="getStatusSymbol('reviewer_prompt')"></span>
+              <span class="status-symbol" :class="getStatusSymbolClass('reviewer_prompt')">{{ getStatusSymbol('reviewer_prompt') }}</span>
               <span class="config-label">{{ $t('configGuide.caseReviewer') }}</span>
               <span class="config-name" v-if="configStatus.reviewer_prompt.name">{{ configStatus.reviewer_prompt.name }}</span>
               <span class="status-text" v-if="!configStatus.reviewer_prompt.configured">{{ $t('configGuide.unconfigured') }}</span>
@@ -69,7 +69,7 @@
           <div class="group-label">{{ $t('configGuide.generationConfig') }}</div>
           <div class="config-items-row">
             <div class="config-item-inline" :class="getConfigItemClass('generation_config')">
-              <span class="status-symbol" v-html="getStatusSymbol('generation_config')"></span>
+              <span class="status-symbol" :class="getStatusSymbolClass('generation_config')">{{ getStatusSymbol('generation_config') }}</span>
               <span class="config-label">{{ $t('configGuide.generationSettings') }}</span>
               <span class="config-name" v-if="configStatus.generation_config && configStatus.generation_config.name">{{ configStatus.generation_config.name }}</span>
               <span class="status-text" v-if="!configStatus.generation_config || !configStatus.generation_config.configured">{{ $t('configGuide.unconfigured') }}</span>
@@ -341,8 +341,8 @@
 <script>
 import api from '@/utils/api'
 import { ElMessage } from 'element-plus'
-import * as XLSX from 'xlsx'
 import { useUserStore } from '@/stores/user'
+import { exportAoaToExcel } from '@/utils/excelExport'
 
 export default {
   name: 'RequirementAnalysisView',
@@ -601,15 +601,23 @@ export default {
     getStatusSymbol(configKey) {
       const config = this.configStatus[configKey]
       if (config.enabled) {
-        // 绿色对勾
-        return '<span style="color: #27ae60; font-size: 18px;">✓</span>'
+        return '✓'
       } else if (config.configured) {
-        // 禁用图标
-        return '<span style="color: #95a5a6; font-size: 18px;">○</span>'
+        return '○'
       } else {
-        // 红色叉号
-        return '<span style="color: #e74c3c; font-size: 18px;">✗</span>'
+        return '✗'
       }
+    },
+
+    getStatusSymbolClass(configKey) {
+      const config = this.configStatus[configKey]
+      if (config.enabled) {
+        return 'status-symbol-enabled'
+      }
+      if (config.configured) {
+        return 'status-symbol-disabled'
+      }
+      return 'status-symbol-missing'
     },
 
     handleDrop(event) {
@@ -1060,9 +1068,6 @@ export default {
         const finalTestCases = this.generationResult.final_test_cases;
         const taskId = this.generationResult.task_id;
 
-        // 创建工作簿
-        const workbook = XLSX.utils.book_new();
-
         // 过滤掉总结和建议部分，只保留测试用例内容
         const filteredContent = this.filterTestCasesOnly(finalTestCases);
 
@@ -1097,9 +1102,6 @@ export default {
           row.map(cell => this.convertBrToNewline(cell))
         );
 
-        // 创建工作表
-        const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-
         // 设置列宽
         const colWidths = [
           { wch: 15 }, // 测试用例编号
@@ -1109,40 +1111,16 @@ export default {
           { wch: 30 }, // 预期结果
           { wch: 10 }  // 优先级
         ];
-        worksheet['!cols'] = colWidths;
-
-        // 设置表头样式（加粗）
-        if (worksheetData.length > 1) {
-          for (let col = 0; col < Math.min(6, worksheetData[0].length); col++) {
-            const cellAddress = XLSX.utils.encode_cell({ r: 0, c: col });
-            if (!worksheet[cellAddress]) continue;
-            worksheet[cellAddress].s = {
-              font: { bold: true },
-              alignment: { horizontal: 'center', vertical: 'center', wrapText: true }
-            };
-          }
-
-          // 设置自动换行
-          for (let row = 1; row < worksheetData.length; row++) {
-            for (let col = 0; col < Math.min(6, worksheetData[row].length); col++) {
-              const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
-              if (worksheet[cellAddress]) {
-                worksheet[cellAddress].s = {
-                  alignment: { vertical: 'top', wrapText: true }
-                };
-              }
-            }
-          }
-        }
-
-        // 将工作表添加到工作簿
-        XLSX.utils.book_append_sheet(workbook, worksheet, this.$t('requirementAnalysis.testCaseSheetName'));
-
         // 生成文件名（包含任务ID和日期）
         const fileName = this.$t('requirementAnalysis.excelFileName', { taskId: taskId, date: new Date().toISOString().slice(0, 10) });
 
         // 导出文件
-        XLSX.writeFile(workbook, fileName);
+        await exportAoaToExcel({
+          data: worksheetData,
+          fileName,
+          sheetName: this.$t('requirementAnalysis.testCaseSheetName'),
+          columnWidths: colWidths
+        });
 
         ElMessage.success(this.$t('requirementAnalysis.downloadSuccess'));
       } catch (error) {
@@ -1694,6 +1672,18 @@ export default {
   display: flex;
   align-items: center;
   font-size: 20px;
+}
+
+.status-symbol-enabled {
+  color: #27ae60;
+}
+
+.status-symbol-disabled {
+  color: #95a5a6;
+}
+
+.status-symbol-missing {
+  color: #e74c3c;
 }
 
 .config-label {

@@ -1,8 +1,13 @@
 import json
 import time
 from django.utils import timezone
+from apps.core.url_safety import validate_outbound_http_url
 from .models import RequestHistory
 from .variable_resolver import VariableResolver
+
+
+def validate_api_request_url(url):
+    return validate_outbound_http_url(url, label='API request URL')
 
 
 def execute_assertions(response, assertions):
@@ -146,6 +151,7 @@ def execute_test_suite(test_suite, environment, executed_by):
                 # 替换URL中的变量（先解析动态函数，再替换环境变量）
                 url = _replace_variables(api_request.url, variables)
                 url = resolver.resolve(url)
+                url = validate_api_request_url(url)
                 
                 # 准备请求头
                 headers = {}
@@ -184,7 +190,8 @@ def execute_test_suite(test_suite, environment, executed_by):
                     headers=headers,
                     params=params,
                     json=body_data,
-                    timeout=30
+                    timeout=30,
+                    allow_redirects=False
                 )
                 end_time = time.time()
                 response_time = (end_time - start_time) * 1000
@@ -307,6 +314,7 @@ def execute_api_request(api_request, environment, executed_by):
         # 替换URL中的变量（先解析动态函数，再替换环境变量）
         url = _replace_variables(api_request.url, variables)
         url = resolver.resolve(url)
+        url = validate_api_request_url(url)
         
         # 准备请求头
         headers = {}
@@ -345,7 +353,8 @@ def execute_api_request(api_request, environment, executed_by):
             headers=headers,
             params=params,
             json=body_data,
-            timeout=30
+            timeout=30,
+            allow_redirects=False
         )
         end_time = time.time()
         response_time = (end_time - start_time) * 1000

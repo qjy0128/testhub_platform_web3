@@ -1,9 +1,15 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from django.db import models
 from .models import Project
 
+@extend_schema(
+    operation_id='api_projects_user_projects_list_retrieve',
+    responses=OpenApiTypes.OBJECT,
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_projects_list(request):
