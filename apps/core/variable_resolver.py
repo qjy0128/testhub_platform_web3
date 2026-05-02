@@ -6,7 +6,10 @@
 import re
 import sys
 import json
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 # 设置标准输出编码为 UTF-8，避免 Windows 系统上的编码问题
 if sys.platform == 'win32':
@@ -142,9 +145,9 @@ class VariableResolver:
                 if isinstance(e, UnicodeEncodeError):
                     return match.group(0)
                 try:
-                    print(f"[WARNING] Variable resolution failed: ${{{expression}}} - {str(e)}")
+                    logger.warning("Variable resolution failed: ${%s} - %s", expression, e)
                 except UnicodeEncodeError:
-                    print(f"[WARNING] Variable resolution failed: ${{{expression}}}")
+                    logger.warning("Variable resolution failed: ${%s}", expression)
                 return match.group(0)
         
         return re.sub(pattern, replace_func, text)
@@ -255,7 +258,7 @@ class VariableResolver:
             if arg.startswith('[') and arg.endswith(']'):
                 try:
                     return json.loads(arg)
-                except:
+                except Exception:
                     pass
             # 移除引号
             return arg.strip('\'"')
@@ -318,8 +321,7 @@ class VariableResolver:
                         # JSON格式: ["a","b","c"]
                         try:
                             sequence_arg = json.loads(sequence_arg)
-                        except:
-                            # 如果JSON解析失败，尝试手动解析
+                        except Exception:  # 如果JSON解析失败，尝试手动解析
                             sequence_arg = [item.strip().strip('"\'') for item in sequence_arg[1:-1].split(',')]
                     else:
                         # 逗号分隔格式: a,b,c

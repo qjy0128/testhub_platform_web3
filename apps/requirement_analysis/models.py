@@ -9,6 +9,7 @@ import asyncio
 from typing import Dict, Any, List, AsyncIterator
 import logging
 
+from apps.core.encrypted_fields import EncryptedCharField
 from apps.core.url_safety import validate_outbound_http_url
 
 logger = logging.getLogger(__name__)
@@ -219,7 +220,7 @@ class AIModelConfig(models.Model):
     name = models.CharField(max_length=100, verbose_name='配置名称')
     model_type = models.CharField(max_length=20, choices=MODEL_CHOICES, verbose_name='模型类型')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, verbose_name='角色')
-    api_key = models.CharField(max_length=200, verbose_name='API Key', blank=True, null=True)
+    api_key = EncryptedCharField(max_length=2048, verbose_name='API Key', blank=True, null=True)
     base_url = models.URLField(verbose_name='API Base URL')
     model_name = models.CharField(max_length=100, verbose_name='模型名称')
     max_tokens = models.IntegerField(default=4096, verbose_name='最大Token数')

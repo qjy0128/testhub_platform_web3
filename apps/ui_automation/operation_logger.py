@@ -2,7 +2,10 @@
 操作记录工具
 用于记录用户在UI自动化测试模块中的各种操作
 """
+import logging
 from .models import OperationRecord
+
+logger = logging.getLogger(__name__)
 
 
 def log_operation(operation_type, resource_type, resource_id, resource_name, user, description=None):
@@ -34,4 +37,4 @@ def log_operation(operation_type, resource_type, resource_id, resource_name, use
         )
     except Exception as e:
         # 记录操作日志失败不应影响主要业务逻辑
-        print(f"记录操作日志失败: {str(e)}")
+        logger.warning("记录操作日志失败: %s", e)

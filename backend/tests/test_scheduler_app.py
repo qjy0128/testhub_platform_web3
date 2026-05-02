@@ -7,6 +7,10 @@ class SchedulerAppTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.user = get_user_model().objects.create_user(username='scheduler-owner', password='pass')
+        # /api/scheduler/run-due/ 仅 admin 可调用（参见 SchedulerRunDueJobsView）
+        self.admin = get_user_model().objects.create_user(
+            username='scheduler-admin', password='pass', is_staff=True, is_superuser=True
+        )
 
     def test_capabilities_requires_authentication(self):
         response = self.client.get('/api/scheduler/capabilities/')
@@ -23,8 +27,15 @@ class SchedulerAppTests(TestCase):
         self.assertTrue(response.data['supports_retries'])
         self.assertIn(response.data['backend'], {'local', 'django_q2'})
 
-    def test_run_due_supports_dry_run(self):
+    def test_run_due_rejects_non_admin(self):
         self.client.force_authenticate(user=self.user)
+
+        response = self.client.post('/api/scheduler/run-due/', {'dry_run': True}, format='json')
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_run_due_supports_dry_run(self):
+        self.client.force_authenticate(user=self.admin)
 
         response = self.client.post('/api/scheduler/run-due/', {'dry_run': True}, format='json')
 

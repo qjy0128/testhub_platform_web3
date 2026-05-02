@@ -214,39 +214,39 @@ class Command(BaseCommand):
                                     logger.info(f"UI定时任务 {task.name} 执行成功")
 
                                     # 发送成功通知
-                                    print("       === 开始检查发送成功通知 ===")
+                                    logger.info("       === 开始检查发送成功通知 ===")
                                     notification_setting = None
                                     if hasattr(task, 'notification_settings'):
                                         try:
                                             notification_setting = task.notification_settings.first()
-                                            print(f"       获取到通知设置: {notification_setting}")
+                                            logger.info(f"       获取到通知设置: {notification_setting}")
                                             if notification_setting:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
+                                                logger.info(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
                                             else:
-                                                print("       没有找到通知设置")
+                                                logger.info("       没有找到通知设置")
                                         except Exception as e:
-                                            print(f"       获取任务通知设置时出错: {e}", file=sys.stderr)
+                                            logger.error(f"       获取任务通知设置时出错: {e}")
                                             import traceback
                                             traceback.print_exc()
                                     else:
-                                        print("       任务没有notification_settings属性")
+                                        logger.info("       任务没有notification_settings属性")
 
                                     if notification_setting and notification_setting.is_enabled:
-                                        print("       通知设置已启用，准备发送成功通知")
+                                        logger.info("       通知设置已启用，准备发送成功通知")
                                         if notification_setting.notify_on_success:
-                                            print("       调用 _send_task_notification 方法发送成功通知")
+                                            logger.info("       调用 _send_task_notification 方法发送成功通知")
                                             try:
                                                 from apps.ui_automation.views import UiScheduledTaskViewSet
                                                 viewset = UiScheduledTaskViewSet()
                                                 viewset._send_task_notification(task, success=True)
-                                                print("       ✓ 成功通知已发送")
+                                                logger.info("       ✓ 成功通知已发送")
                                             except Exception as e:
-                                                print(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}", file=sys.stderr)
+                                                logger.error(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}")
                                         else:
-                                            print("       通知设置中未启用成功通知")
+                                            logger.info("       通知设置中未启用成功通知")
                                     else:
-                                        print("       通知设置未启用或不存在，跳过成功通知")
-                                    print("       === 结束检查发送成功通知 ===")
+                                        logger.info("       通知设置未启用或不存在，跳过成功通知")
+                                    logger.info("       === 结束检查发送成功通知 ===")
 
                                 except Exception as e:
                                     logger.error(f"UI定时任务 {task.name} 执行失败: {e}", exc_info=True)
@@ -262,39 +262,39 @@ class Command(BaseCommand):
                                     task.save()
 
                                     # 发送失败通知
-                                    print("       === 开始检查发送失败通知 ===")
+                                    logger.error("       === 开始检查发送失败通知 ===")
                                     notification_setting = None
                                     if hasattr(task, 'notification_settings'):
                                         try:
                                             notification_setting = task.notification_settings.first()
-                                            print(f"       获取到通知设置（失败情况）: {notification_setting}")
+                                            logger.error(f"       获取到通知设置（失败情况）: {notification_setting}")
                                             if notification_setting:
-                                                print(f"       通知设置详情（失败情况） - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
+                                                logger.error(f"       通知设置详情（失败情况） - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
                                             else:
-                                                print("       没有找到通知设置（失败情况）")
+                                                logger.error("       没有找到通知设置（失败情况）")
                                         except Exception as notify_error:
-                                            print(f"       获取任务通知设置时出错（失败情况）: {notify_error}", file=sys.stderr)
+                                            logger.error(f"       获取任务通知设置时出错（失败情况）: {notify_error}")
                                             import traceback
                                             traceback.print_exc()
                                     else:
-                                        print("       任务没有notification_settings属性（失败情况）")
+                                        logger.error("       任务没有notification_settings属性（失败情况）")
 
                                     if notification_setting and notification_setting.is_enabled:
-                                        print("       通知设置已启用，准备发送失败通知")
+                                        logger.error("       通知设置已启用，准备发送失败通知")
                                         if notification_setting.notify_on_failure:
-                                            print("       调用 _send_task_notification 方法发送失败通知")
+                                            logger.error("       调用 _send_task_notification 方法发送失败通知")
                                             try:
                                                 from apps.ui_automation.views import UiScheduledTaskViewSet
                                                 viewset = UiScheduledTaskViewSet()
                                                 viewset._send_task_notification(task, success=False)
-                                                print("       ✓ 失败通知已发送")
+                                                logger.error("       ✓ 失败通知已发送")
                                             except Exception as notify_error:
-                                                print(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {notify_error}", file=sys.stderr)
+                                                logger.error(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {notify_error}")
                                         else:
-                                            print("       通知设置中未启用失败通知")
+                                            logger.error("       通知设置中未启用失败通知")
                                     else:
-                                        print("       通知设置未启用或不存在，跳过失败通知")
-                                    print("       === 结束检查发送失败通知 ===")
+                                        logger.error("       通知设置未启用或不存在，跳过失败通知")
+                                    logger.error("       === 结束检查发送失败通知 ===")
 
                             thread = threading.Thread(target=run_test, daemon=True)
                             thread.start()
@@ -416,61 +416,61 @@ class Command(BaseCommand):
                                 # 发送通知
                                 success = (failed_count == 0)
                                 if success:
-                                    print("       === 开始检查发送成功通知 ===")
+                                    logger.info("       === 开始检查发送成功通知 ===")
                                 else:
-                                    print("       === 开始检查发送失败通知 ===")
+                                    logger.error("       === 开始检查发送失败通知 ===")
 
                                 notification_setting = None
                                 if hasattr(task, 'notification_settings'):
                                     try:
                                         notification_setting = task.notification_settings.first()
-                                        print(f"       获取到通知设置: {notification_setting}")
+                                        logger.info(f"       获取到通知设置: {notification_setting}")
                                         if notification_setting:
                                             if success:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
+                                                logger.info(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 成功通知: {notification_setting.notify_on_success}")
                                             else:
-                                                print(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
+                                                logger.error(f"       通知设置详情 - ID: {notification_setting.id}, 是否启用: {notification_setting.is_enabled}, 失败通知: {notification_setting.notify_on_failure}")
                                         else:
-                                            print("       没有找到通知设置")
+                                            logger.info("       没有找到通知设置")
                                     except Exception as e:
-                                        print(f"       获取任务通知设置时出错: {e}", file=sys.stderr)
+                                        logger.error(f"       获取任务通知设置时出错: {e}")
                                         import traceback
                                         traceback.print_exc()
                                 else:
-                                    print("       任务没有notification_settings属性")
+                                    logger.info("       任务没有notification_settings属性")
 
                                 if notification_setting and notification_setting.is_enabled:
-                                    print("       通知设置已启用，准备发送通知")
+                                    logger.info("       通知设置已启用，准备发送通知")
                                     if success and notification_setting.notify_on_success:
-                                        print("       调用 _send_task_notification 方法发送成功通知")
+                                        logger.info("       调用 _send_task_notification 方法发送成功通知")
                                         try:
                                             from apps.ui_automation.views import UiScheduledTaskViewSet
                                             viewset = UiScheduledTaskViewSet()
                                             viewset._send_task_notification(task, success=True)
-                                            print(f"       ✓ 成功通知已发送 (成功:{success_count}, 失败:{failed_count})")
+                                            logger.error(f"       ✓ 成功通知已发送 (成功:{success_count}, 失败:{failed_count})")
                                         except Exception as e:
-                                            print(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}", file=sys.stderr)
+                                            logger.error(f"       ✗ 发送UI定时任务 {task.name} 成功通知失败: {e}")
                                     elif not success and notification_setting.notify_on_failure:
-                                        print("       调用 _send_task_notification 方法发送失败通知")
+                                        logger.error("       调用 _send_task_notification 方法发送失败通知")
                                         try:
                                             from apps.ui_automation.views import UiScheduledTaskViewSet
                                             viewset = UiScheduledTaskViewSet()
                                             viewset._send_task_notification(task, success=False)
-                                            print(f"       ✓ 失败通知已发送 (成功:{success_count}, 失败:{failed_count})")
+                                            logger.error(f"       ✓ 失败通知已发送 (成功:{success_count}, 失败:{failed_count})")
                                         except Exception as e:
-                                            print(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {e}", file=sys.stderr)
+                                            logger.error(f"       ✗ 发送UI定时任务 {task.name} 失败通知失败: {e}")
                                     else:
                                         if success:
-                                            print("       通知设置中未启用成功通知")
+                                            logger.info("       通知设置中未启用成功通知")
                                         else:
-                                            print("       通知设置中未启用失败通知")
+                                            logger.error("       通知设置中未启用失败通知")
                                 else:
-                                    print("       通知设置未启用或不存在，跳过通知")
+                                    logger.info("       通知设置未启用或不存在，跳过通知")
 
                                 if success:
-                                    print("       === 结束检查发送成功通知 ===")
+                                    logger.info("       === 结束检查发送成功通知 ===")
                                 else:
-                                    print("       === 结束检查发送失败通知 ===")
+                                    logger.error("       === 结束检查发送失败通知 ===")
 
                             # 在后台线程中执行
                             thread = threading.Thread(target=run_test_cases, daemon=True)

@@ -305,7 +305,7 @@ class EncodingTools:
                         if detection['confidence'] > 0.6:
                             try:
                                 data_str = obj.data.decode(detection['encoding'])
-                            except:
+                            except Exception:
                                 pass
                     except ImportError:
                         pass
@@ -337,8 +337,7 @@ class EncodingTools:
         except Exception as e:
             error_msg = f"二维码解析失败: {str(e)}"
             logger.error(error_msg)
-            # 同时打印到控制台，确保错误信息可见
-            print(f"[ERROR] {error_msg}")
+            logger.error(error_msg)
             return {'error': error_msg}
 
     @staticmethod

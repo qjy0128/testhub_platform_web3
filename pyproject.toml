@@ -1,0 +1,71 @@
+[tool.black]
+line-length = 110
+target-version = ["py310", "py311", "py312"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.git
+  | \.venv
+  | \.venv312
+  | migrations
+  | static_files
+  | static_collected
+  | media
+  | logs
+  | node_modules
+  | frontend
+  | apps/.*/migrations
+)/
+'''
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+extend-exclude = [
+    ".venv",
+    ".venv312",
+    "migrations",
+    "static_files",
+    "static_collected",
+    "media",
+    "logs",
+    "frontend",
+    "node_modules",
+]
+
+[tool.ruff.lint]
+# 渐进式启用：先选最有性价比的 rule set。
+# E/W: pycodestyle, F: pyflakes, I: isort, B: bugbear, UP: pyupgrade,
+# DJ: django-specific, S: bandit (安全).
+select = ["E", "F", "W", "I", "B", "UP", "DJ"]
+ignore = [
+    "E501",   # line length（black 已经处理）
+    "B008",   # function-call in default argument（DRF / Django 大量使用）
+    "B904",   # raise from (太多旧代码不合规)
+    "DJ001",  # null=True on string-based field（项目大量已存在）
+    "UP032",  # f-string conversion（我们要保留 % 格式的少数日志）
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "backend"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["E", "F", "W", "I", "B", "UP", "DJ"]
+"backend/settings.py" = ["F401", "F403"]  # SimpleUI 配置使用 import *
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "backend.test_settings"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["backend/tests", "apps"]
+# --capture=no（即 -s）：在 Windows pytest 8.4 上，capture 系统在带 PyPDF2
+# 链路的 import 后存在 stderr 关闭竞态，禁用 capture 即可绕过。
+addopts = "-x --tb=short -s"
+# 过滤第三方包的过时 / 冗余 warning：
+# - PyPDF2 已废弃但被 drf-spectacular 链路传递引入；它 warnings.warn 的时机
+#   会在 Windows pytest 8.4 capture 关闭后触发"I/O on closed file"。
+# - Django 4.2 对 USE_TZ 的提示在我们已显式设 True 时仍会刷出。
+filterwarnings = [
+    "ignore::DeprecationWarning:PyPDF2",
+    "ignore::DeprecationWarning:pypdf",
+    "ignore:.*USE_TZ.*:django.utils.deprecation.RemovedInDjango50Warning",
+]

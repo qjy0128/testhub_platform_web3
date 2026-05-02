@@ -1,6 +1,11 @@
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_serializer
 from .models import TestCase, TestCaseStep, TestCaseAttachment, TestCaseComment
+from apps.core.upload_safety import (
+    ATTACHMENT_EXTENSIONS,
+    FileSizeValidator,
+    SafeExtensionValidator,
+)
 from apps.users.serializers import UserSerializer
 from apps.versions.serializers import VersionSimpleSerializer
 
@@ -12,7 +17,13 @@ class TestCaseStepSerializer(serializers.ModelSerializer):
 
 class TestCaseAttachmentSerializer(serializers.ModelSerializer):
     uploaded_by = UserSerializer(read_only=True)
-    
+    file = serializers.FileField(
+        validators=[
+            FileSizeValidator(),
+            SafeExtensionValidator(ATTACHMENT_EXTENSIONS),
+        ],
+    )
+
     class Meta:
         model = TestCaseAttachment
         fields = '__all__'

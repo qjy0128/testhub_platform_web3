@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import logger from '@/utils/logger'
 
 // Keep only shell/auth views in the entry chunk; feature pages are lazy-loaded.
 import Login from '@/views/auth/Login.vue'
@@ -515,42 +516,33 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const userStore = useUserStore()
 
-  console.log('路由守卫:', {
+  logger.debug('route guard:', {
     to: to.path,
     from: from.path,
     hasToken: !!userStore.accessToken,
     hasUser: !!userStore.user,
-    isAuthenticated: userStore.isAuthenticated
+    isAuthenticated: userStore.isAuthenticated,
   })
 
-  // 只在应用初始化或从登录页面导航时初始化认证
   if (!userStore.user && userStore.accessToken) {
     try {
-      console.log('初始化认证...')
       await userStore.initAuth()
-      console.log('认证初始化完成:', {
-        hasUser: !!userStore.user,
-        isAuthenticated: userStore.isAuthenticated
-      })
     } catch (error) {
-      console.error('认证初始化失败:', error)
+      logger.warn('auth init failed', error)
     }
   }
 
   if (to.meta.requiresAuth && !userStore.isAuthenticated) {
-    console.log('需要认证但未认证，跳转到登录页')
     next('/login')
   } else if (to.meta.requiresGuest && userStore.isAuthenticated) {
-    console.log('访客页面但已认证，跳转到项目页')
     next('/home')
   } else {
-    console.log('路由守卫通过，继续导航')
     next()
   }
 })
 
 router.afterEach((to, from) => {
-  console.log(`Navigated from ${from.path} to ${to.path}`)
+  logger.debug(`navigated ${from.path} -> ${to.path}`)
 })
 
 export default router

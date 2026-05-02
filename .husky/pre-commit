@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+# 1) frontend 部分：staged JS/Vue 跑 lint-staged
+# 2) backend 部分：staged .py 跑 ruff + black --check
+# 任一工具未安装则跳过相应步骤，绝不阻塞纯一侧的开发者。
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+# ---------- frontend ----------
+if [ -d "$ROOT/frontend/node_modules" ]; then
+  ( cd "$ROOT/frontend" && npx --no-install lint-staged ) || exit 1
+else
+  echo "[husky] frontend/node_modules 未安装，跳过 lint-staged"
+fi
+
+# ---------- backend ----------
+PY_FILES="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.py$' | grep -v '/migrations/' || true)"
+if [ -n "$PY_FILES" ]; then
+  if command -v ruff >/dev/null 2>&1; then
+    echo "[husky] ruff check on staged Python files"
+    echo "$PY_FILES" | xargs ruff check --fix || exit 1
+    # ruff --fix 会修改文件；把修改后的内容重新 add 进暂存区
+    echo "$PY_FILES" | xargs git add
+  else
+    echo "[husky] ruff 未安装，跳过 (pip install -r requirements-dev.txt)"
+  fi
+
+  if command -v black >/dev/null 2>&1; then
+    echo "[husky] black format on staged Python files"
+    echo "$PY_FILES" | xargs black --quiet || exit 1
+    echo "$PY_FILES" | xargs git add
+  else
+    echo "[husky] black 未安装，跳过 (pip install -r requirements-dev.txt)"
+  fi
+else
+  echo "[husky] 没有需要检查的 Python 暂存文件"
+fi

@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { navigateToLogin } from '@/utils/auth-nav'
 
 const api = axios.create({
   baseURL: '/api',
@@ -8,6 +9,10 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // 跨域携带 cookie（CSRF / 旧 session 兼容）
+  withCredentials: true,
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
 })
 
 // 正在刷新的标志
@@ -45,17 +50,14 @@ api.interceptors.request.use(
         // 如果没有正在刷新，开始刷新
         if (!isRefreshing) {
           isRefreshing = true
-          console.log('Token即将过期，开始刷新...')
 
           try {
             const newToken = await userStore.refreshAccessToken()
-            console.log('Token刷新成功')
             processQueue(null, newToken)
 
             // 更新当前请求的token
             config.headers.Authorization = `Bearer ${newToken}`
           } catch (error) {
-            console.error('Token刷新失败:', error)
             processQueue(error, null)
             // 刷新失败会在user store中自动logout
             return Promise.reject(error)
@@ -64,7 +66,6 @@ api.interceptors.request.use(
           }
         } else {
           // 如果正在刷新，将请求加入队列
-          console.log('Token正在刷新，请求加入队列等待...')
           return new Promise((resolve, reject) => {
             failedQueue.push({ resolve, reject })
           }).then(token => {
@@ -100,46 +101,42 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       // 如果是logout请求失败，直接清除本地状态不再重试logout，防止死循环
       if (originalRequest.url === '/auth/logout/') {
-        console.error('Logout请求401，直接清除本地状态')
         userStore.$patch((state) => {
           state.accessToken = ''
           state.refreshToken = ''
           state.user = null
           state.tokenExpiresAt = 0
         })
+        sessionStorage.removeItem('access_token')
+        sessionStorage.removeItem('token_expires_at')
+        sessionStorage.removeItem('th_user')
+        // 兼容历史版本残留
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('token_expires_at')
         localStorage.removeItem('user')
-        window.location.href = '/login'
+        await navigateToLogin()
         return Promise.reject(error)
       }
 
       // 如果是刷新token的请求失败
       if (originalRequest.url === '/auth/token/refresh/') {
-        console.error('Refresh token失败，跳转登录页')
         await userStore.logout()
         return Promise.reject(error)
       }
 
-      // 如果有refresh token，尝试刷新
-      if (userStore.refreshToken && !isRefreshing) {
+      // refresh token 在 httpOnly cookie 中由浏览器自动携带，
+      // 这里只看是否在刷新中，不再需要前端手动持有 refreshToken。
+      if (!isRefreshing) {
         originalRequest._retry = true
         isRefreshing = true
 
         try {
-          console.log('收到401响应，尝试刷新token...')
           const newToken = await userStore.refreshAccessToken()
-          console.log('Token刷新成功，重试原请求')
           processQueue(null, newToken)
-
-          // 更新当前请求的token
           originalRequest.headers.Authorization = `Bearer ${newToken}`
-
-          // 重试原请求
           return api(originalRequest)
         } catch (refreshError) {
-          console.error('Token刷新失败:', refreshError)
           processQueue(refreshError, null)
           await userStore.logout()
           return Promise.reject(refreshError)
@@ -147,12 +144,17 @@ api.interceptors.response.use(
           isRefreshing = false
         }
       } else {
-        // 没有refresh token，直接退出
-        console.error('没有refresh token，跳转登录页')
-        await userStore.logout()
+        // 已有刷新在进行，把当前请求挂到队列里等新 token
+        return new Promise((resolve, reject) => {
+          failedQueue.push({
+            resolve: (token) => {
+              originalRequest.headers.Authorization = `Bearer ${token}`
+              resolve(api(originalRequest))
+            },
+            reject,
+          })
+        })
       }
-
-      return Promise.reject(error)
     }
 
     // 其他错误处理

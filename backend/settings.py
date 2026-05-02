@@ -15,11 +15,21 @@ def _dedupe(values):
     return list(dict.fromkeys(values))
 
 
+DEBUG = config('DEBUG', default=False, cast=bool)
+
 SECRET_KEY = config('SECRET_KEY', default='')
 if not SECRET_KEY or SECRET_KEY.startswith('django-insecure-'):
     raise ImproperlyConfigured('SECRET_KEY 必须通过环境变量配置，且不能使用 Django 示例密钥')
 
-DEBUG = config('DEBUG', default=False, cast=bool)
+# JWT 签名密钥（建议与 SECRET_KEY 分开，生产环境必须独立配置）
+JWT_SIGNING_KEY = config('JWT_SIGNING_KEY', default=SECRET_KEY)
+if not DEBUG and JWT_SIGNING_KEY == SECRET_KEY:
+    import warnings
+    warnings.warn(
+        '生产环境应将 JWT_SIGNING_KEY 与 SECRET_KEY 分开配置，'
+        '请设置独立的 JWT_SIGNING_KEY 环境变量。',
+        RuntimeWarning,
+    )
 
 APP_AUTOMATION_ALLOWED_SCRCPY_PATHS = _dedupe(
     config('APP_AUTOMATION_ALLOWED_SCRCPY_PATHS', default='scrcpy', cast=_csv)
@@ -156,10 +166,13 @@ TIME_ZONE = config('TIME_ZONE', default='Asia/Shanghai')
 USE_I18N = True
 USE_TZ = True
 
+# `STATIC_*`：Django collectstatic 的产物（前端构建后的静态资源）
 STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static_files')
+STATIC_ROOT = os.path.join(BASE_DIR, 'static_collected')
 
-# 数据工厂的静态文件目录
+# `STATIC_FILES_*`：数据工厂等业务模块写入的运行期静态资源
+# 这是与 STATIC_ROOT 不同的目录，避免 collectstatic 覆盖业务文件。
+# 生产环境需要由 nginx 等反代将 /static_files/ 指向 STATIC_FILES_ROOT。
 STATIC_FILES_URL = '/static_files/'
 STATIC_FILES_ROOT = os.path.join(BASE_DIR, 'static_files')
 
@@ -167,6 +180,32 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 上传体积限制（默认 25MB；OCR/需求文档/知识库等场景可通过环境变量调大）
+DATA_UPLOAD_MAX_MEMORY_SIZE = config('DATA_UPLOAD_MAX_MEMORY_SIZE', default=25 * 1024 * 1024, cast=int)
+FILE_UPLOAD_MAX_MEMORY_SIZE = config('FILE_UPLOAD_MAX_MEMORY_SIZE', default=25 * 1024 * 1024, cast=int)
+# 用于业务侧 FileField 校验：单文件上限（默认与上传上限一致）
+MAX_UPLOAD_FILE_SIZE = config('MAX_UPLOAD_FILE_SIZE', default=25 * 1024 * 1024, cast=int)
+
+# SSRF 防护：是否允许出站 HTTP 请求命中私有 / 本机 / 保留地址。
+# 默认 False（即生产/开发都会拒绝），仅在确需访问内网服务时显式打开。
+ALLOW_INTERNAL_OUTBOUND_URLS = config('ALLOW_INTERNAL_OUTBOUND_URLS', default=False, cast=bool)
+
+# 字段级加密密钥（44 字节 base64 urlsafe）。
+# 留空时 ``apps.core.encrypted_fields`` 会基于 SECRET_KEY 派生，方便开发；
+# 生产环境必须显式独立配置，便于以后做 key rotation。
+# 生成方式：python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+FIELD_ENCRYPTION_KEY = config('FIELD_ENCRYPTION_KEY', default='')
+
+# SSE 长连接的最大保活时长（秒）。超过此值会主动断流，让前端发起新连接。
+SSE_MAX_TIMEOUT_SECONDS = config('SSE_MAX_TIMEOUT_SECONDS', default=3600, cast=int)
+
+# Refresh token cookie：登录时把 refresh token 写入 httpOnly cookie，前端不再持久化。
+# 名称 / 路径 / SameSite 可通过环境变量覆盖。
+JWT_REFRESH_COOKIE_NAME = config('JWT_REFRESH_COOKIE_NAME', default='th_refresh')
+JWT_REFRESH_COOKIE_PATH = config('JWT_REFRESH_COOKIE_PATH', default='/api/auth/')
+JWT_REFRESH_COOKIE_SAMESITE = config('JWT_REFRESH_COOKIE_SAMESITE', default='Lax')
+JWT_REFRESH_COOKIE_SECURE = config('JWT_REFRESH_COOKIE_SECURE', default=not DEBUG, cast=bool)
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.User'
@@ -192,6 +231,18 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/min',
+        'user': '600/min',
+        'login': '10/min',
+        'register': '5/min',
+        'ai': '20/min',
+        'wallet': '30/min',
+    },
 }
 
 # JWT Settings
@@ -205,7 +256,7 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,  # 更新最后登录时间
 
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
+    'SIGNING_KEY': JWT_SIGNING_KEY,
     'VERIFYING_KEY': None,
     'AUDIENCE': None,
     'ISSUER': None,
@@ -230,14 +281,15 @@ SIMPLE_JWT = {
 }
 
 # CSRF Settings - 根据DEBUG模式设置
+# 说明：CSRF cookie 必须可被前端 JS 读取（双提交模式），所以 HTTPONLY 始终为 False。
+# 真正的安全保障来自 SameSite + Secure + 服务端比对。
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_HTTPONLY = False
 if DEBUG:
     CSRF_COOKIE_SECURE = False
-    CSRF_USE_SESSIONS = False
-    CSRF_COOKIE_HTTPONLY = False
     CSRF_COOKIE_SAMESITE = 'Lax'
 else:
     CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_HTTPONLY = True
     CSRF_COOKIE_SAMESITE = 'Strict'
 
 SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)
@@ -295,80 +347,31 @@ else:
     CSRF_TRUSTED_ORIGINS = parsed_csrf_trusted_origins or CORS_ALLOWED_ORIGINS
 
 # Spectacular Settings
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'TestHub API',
-    'DESCRIPTION': 'Test Case Management Platform API',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-    'ENUM_NAME_OVERRIDES': {
-        # request/execution/tool enums
-        'ApiRequestTypeEnum': 'apps.api_testing.models.ApiRequest.REQUEST_TYPE_CHOICES',
-        'AppExecutionResultEnum': 'apps.app_automation.models.AppTestSuite.EXECUTION_RESULT_CHOICES',
-        'UiFrameworkEnum': 'apps.ui_automation.models.TestScript.FRAMEWORK_CHOICES',
-        'DataFactoryToolScenarioEnum': 'apps.data_factory.models.DataFactoryRecord.TOOL_SCENARIOS',
-
-        # same field name, different choice sets
-        'UiElementTypeEnum': 'apps.ui_automation.models.Element.ELEMENT_TYPE_CHOICES',
-        'AppElementTypeEnum': 'apps.app_automation.models.AppElement.ELEMENT_TYPE_CHOICES',
-        'UiExecutionModeEnum': [('text', '文本模式'), ('vision', '视觉模式')],
-        'AiTestingExecutionModeEnum': 'apps.ai_testing.models.AiTestingTask.MODE_CHOICES',
-        'UiExecutionStatusEnum': 'apps.ui_automation.models.TestSuite.EXECUTION_STATUS_CHOICES',
-        'AppExecutionStatusEnum': 'apps.app_automation.models.AppTestSuite.EXECUTION_STATUS_CHOICES',
-
-        # notification/task/priority
-        'ApiNotificationTypeEnum': 'apps.api_testing.models.NotificationLog.NOTIFICATION_TYPES',
-        'TaskNotificationTypeEnum': 'apps.api_testing.models.TaskNotificationSetting.NOTIFICATION_TYPES',
-        'UiScheduledNotificationTypeEnum': 'apps.ui_automation.models.UiScheduledTask.NOTIFICATION_TYPE_CHOICES',
-        'UiNotificationTypeEnum': 'apps.ui_automation.models.UiNotificationLog.NOTIFICATION_TYPES',
-        'AppNotificationTypeEnum': 'apps.app_automation.models.AppNotificationLog.NOTIFICATION_TYPES',
-        'ManualPriorityEnum': 'apps.testcases.models.TestCase.PRIORITY_CHOICES',
-        'ReviewPriorityEnum': 'apps.reviews.models.TestCaseReview.PRIORITY_CHOICES',
-        'RequirementPriorityEnum': 'apps.requirement_analysis.models.GeneratedTestCase.PRIORITY_CHOICES',
-        'UiPriorityEnum': 'apps.ui_automation.models.TestCase.PRIORITY_CHOICES',
-        'RequirementTaskTypeEnum': 'apps.requirement_analysis.models.AnalysisTask.TASK_TYPE_CHOICES',
-        'ApiTaskTypeEnum': 'apps.api_testing.models.ScheduledTask.TASK_TYPE_CHOICES',
-        'UiTaskTypeEnum': 'apps.ui_automation.models.UiScheduledTask.TASK_TYPE_CHOICES',
-
-        # status enums used across modules
-        'ProjectStatusEnum': 'apps.projects.models.Project.STATUS_CHOICES',
-        'ManualTestCaseStatusEnum': 'apps.testcases.models.TestCase.STATUS_CHOICES',
-        'TestRunStatusEnum': 'apps.executions.models.TestRun.STATUS_CHOICES',
-        'TestRunCaseStatusEnum': 'apps.executions.models.TestRunCase.STATUS_CHOICES',
-        'ReviewStatusEnum': 'apps.reviews.models.TestCaseReview.STATUS_CHOICES',
-        'ReviewAssignmentStatusEnum': 'apps.reviews.models.ReviewAssignment.STATUS_CHOICES',
-        'RequirementDocumentStatusEnum': 'apps.requirement_analysis.models.RequirementDocument.STATUS_CHOICES',
-        'GeneratedCaseStatusEnum': 'apps.requirement_analysis.models.GeneratedTestCase.STATUS_CHOICES',
-        'RequirementTaskStatusEnum': 'apps.requirement_analysis.models.AnalysisTask.STATUS_CHOICES',
-        'GenerationTaskStatusEnum': 'apps.requirement_analysis.models.TestCaseGenerationTask.STATUS_CHOICES',
-        'ApiProjectStatusEnum': 'apps.api_testing.models.ApiProject.STATUS_CHOICES',
-        'ApiExecutionStatusEnum': 'apps.api_testing.models.TestExecution.EXECUTION_STATUS_CHOICES',
-        'ApiScheduledTaskStatusEnum': 'apps.api_testing.models.ScheduledTask.STATUS_CHOICES',
-        'ApiTaskExecutionStatusEnum': 'apps.api_testing.models.TaskExecutionLog.STATUS_CHOICES',
-        'ApiNotificationStatusEnum': 'apps.api_testing.models.NotificationLog.STATUS_CHOICES',
-        'UiExecutionRecordStatusEnum': 'apps.ui_automation.models.TestExecution.STATUS_CHOICES',
-        'UiCaseStatusEnum': 'apps.ui_automation.models.TestCase.STATUS_CHOICES',
-        'UiCaseExecutionStatusEnum': 'apps.ui_automation.models.TestCaseExecution.STATUS_CHOICES',
-        'WalletSessionStatusEnum': 'apps.ui_automation.models.WalletSession.STATUS_CHOICES',
-        'UiAiExecutionStatusEnum': 'apps.ui_automation.models.AIExecutionRecord.STATUS_CHOICES',
-        'AppDeviceStatusEnum': 'apps.app_automation.models.AppDevice.STATUS_CHOICES',
-        'AppExecutionStatusTrackEnum': 'apps.app_automation.models.AppTestExecution.STATUS_CHOICES',
-        'UnifiedSchedulerRunStatusEnum': 'apps.core.models.UnifiedScheduledJobRun.STATUS_CHOICES',
-        'UnifiedSchedulerAlertStatusEnum': 'apps.core.models.UnifiedSchedulerAlert.STATUS_CHOICES',
-        'AiTestingTaskStatusEnum': 'apps.ai_testing.models.AiTestingTask.STATUS_CHOICES',
-        'AiTestingRunStatusEnum': 'apps.ai_testing.models.AiTestingRun.STATUS_CHOICES',
-        'KnowledgeDocumentStatusEnum': 'apps.knowledge_base.models.KnowledgeDocument.STATUS_CHOICES',
-        'KnowledgeQueryStatusEnum': 'apps.knowledge_base.models.KnowledgeQuery.STATUS_CHOICES',
-        'OcrBatchStatusEnum': 'apps.ocr_service.models.OcrBatch.STATUS_CHOICES',
-    },
-}
+from .spectacular import SPECTACULAR_SETTINGS  # noqa
 
 # Ensure drf-spectacular extensions are imported and registered.
 import backend.schema_extensions  # noqa: E402,F401
 
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
-CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://:1234@127.0.0.1:6379/0')
+# 结果后端默认走 Redis（同 broker URL，性能最高）；
+# 设 CELERY_RESULT_BACKEND=django-db 可切换到 DB-backed 结果存储，
+# 由 django-celery-results 在 Django Admin 暴露 TaskResult 列表，便于排查。
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=CELERY_BROKER_URL)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# 任务一旦被 worker 接受就更新为 STARTED，便于前端轮询区分"排队 vs 执行中"。
+CELERY_TASK_TRACK_STARTED = True
+# 结果在 Redis / DB 中的保留时长（秒）。默认 24h。
+CELERY_RESULT_EXPIRES = config('CELERY_RESULT_EXPIRES', default=24 * 3600, cast=int)
+# 强制 JSON 序列化，避免反序列化时携带未授信的 pickle 负载。
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+
+# 当切到 django-db 后端时，自动启用 django-celery-results 以便迁移建表 + Admin 显示。
+if CELERY_RESULT_BACKEND == 'django-db' and 'django_celery_results' not in INSTALLED_APPS:
+    THIRD_PARTY_APPS.append('django_celery_results')
+    INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 # Scheduler backend. Use "django_q2" when django-q2 is installed and configured;
 # otherwise the independent scheduler app falls back to the local dispatcher.
@@ -401,17 +404,20 @@ CHANNEL_LAYERS = {
     },
 }
 
-# Cache Configuration
+# Cache Configuration (Redis, 与 Celery broker 使用不同 DB)
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/1'),
         'TIMEOUT': 300,  # 默认缓存超时5分钟
+        'KEY_PREFIX': 'testhub',
     }
 }
 
 # Email Configuration
-EMAIL_BACKEND = 'apps.api_testing.custom_email_backend.CustomEmailBackend'
+EMAIL_BACKEND = 'apps.core.email_backend.CustomEmailBackend'
+# 默认验证 SMTP 证书；内部网关确需放行时再开启。
+EMAIL_INSECURE_SSL = config('EMAIL_INSECURE_SSL', default=False, cast=bool)
 EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
@@ -444,15 +450,19 @@ LOGGING = {
     'handlers': {
         'file': {
             'level': 'INFO',
-            'class': 'logging.FileHandler',
+            'class': 'logging.handlers.TimedRotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'app.log'),
+            'when': 'midnight',
+            'backupCount': 14,
             'encoding': 'utf-8',
             'formatter': 'verbose',
         },
         'error_file': {
             'level': 'ERROR',
-            'class': 'logging.FileHandler',
+            'class': 'logging.handlers.RotatingFileHandler',
             'filename': os.path.join(BASE_DIR, 'logs', 'error.log'),
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
             'encoding': 'utf-8',
             'formatter': 'verbose',
         },
@@ -463,111 +473,18 @@ LOGGING = {
         },
     },
     'loggers': {
-        # 其他具体模块的 logger 配置
+        # 仅在需要单独控制 level 时再覆盖；默认全部走 root。
         'django': {
-            'handlers': ['file', 'error_file', 'console'],
             'level': 'INFO',
-            'propagate': False,
-        },
-        'apps.api_testing.views': {
-            'handlers': ['file', 'error_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'apps.data_factory.tools.json_tools': {
-            'handlers': ['file', 'error_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'apps.data_factory.tools.encoding_tools': {
-            'handlers': ['file', 'error_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
-        },
-        'apps.data_factory.tools': {
-            'handlers': ['file', 'error_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
+            'propagate': True,
         },
     },
     'root': {
         'handlers': ['file', 'error_file', 'console'],
         'level': 'INFO',
-        # 'propagate': True,
     },
 }
 
-# 指定simpleui默认的主题,指定一个文件名，相对路径就从simpleui的theme目录读取
-SIMPLEUI_DEFAULT_THEME = 'admin.lte.css'
-# 是否显示图标
-SIMPLEUI_DEFAULT_ICON = True
-# 是否关闭登录页粒子效果
-SIMPLEUI_LOGIN_PARTICLES = True
-# 后台管理首页，可以是url或者html文件
-# SIMPLEUI_HOME_PAGE = 'https://www.baidu.com/'  # 后面可以扩展为大屏显示做统计
-# 自定义首页标题
-# SIMPLEUI_HOME_TITLE = 'Dashboard'
-# # 自定义首页图标 首页图标,支持element-ui和fontawesome的图标，参考https://fontawesome.com/icons图标
-# SIMPLEUI_HOME_ICON = 'fa fa-gauge'
-# 设置simpleui 点击首页图标跳转的地址
-SIMPLEUI_INDEX = 'http://localhost:3000'
-# 自定义后台的Logo
-SIMPLEUI_LOGO = 'https://static.djangoproject.com/img/favicon.6dbf28c0650e.ico'
-# 是否显示首页信息
-SIMPLEUI_HOME_INFO = False
-# 是否显示快捷入口
-SIMPLEUI_HOME_QUICK = True
-# 是否显示最近动作
-SIMPLEUI_HOME_ACTION = True
-# 使用分析
-SIMPLEUI_ANALYSIS = False
-# 离线模式
-SIMPLEUI_STATIC_OFFLINE = True
-# True或None 默认显示加载遮罩层，指定为False 不显示遮罩层。默认显示
-SIMPLEUI_LOADING = True
-# 设置菜单icon，参考https://element.eleme.cn/#/zh-CN/component/icon
-SIMPLEUI_ICON = {
-    # 一级菜单项
-    '测试执行管理': 'el-icon-s-tools',
-    '用户管理': 'el-icon-user-solid',
-    '令牌黑名单': 'el-icon-warning-outline',
-    '接口测试': 'el-icon-s-platform',
-    '智能助手': 'el-icon-chat-dot-round',
-    '用例评审管理': 'el-icon-edit-outline',
-    '认证令牌': 'el-icon-key',
-    '认证和授权': 'el-icon-s-check',
-    '需求分析': 'el-icon-notebook-2',
-
-    # 二级菜单项
-    '测试执行': 'el-icon-s-operation',
-    '测试执行历史': 'el-icon-time',
-    '测试执行用例': 'el-icon-document',
-    '测试计划': 'el-icon-document-checked',
-    '用户': 'el-icon-user',
-    '用户配置': 'el-icon-setting',
-    'Blacklisted Tokens': 'el-icon-warning-outline',
-    'Outstanding Tokens': 'el-icon-s-custom',
-    'API请求': 'el-icon-s-promotion',
-    'API集合': 'el-icon-s-grid',
-    'API项目': 'el-icon-s-custom',
-    '任务执行日志': 'el-icon-s-data',
-    '定时任务': 'el-icon-time',
-    '测试套件': 'el-icon-suitcase',
-    '环境变量': 'el-icon-school',
-    '请求历史': 'el-icon-odometer',
-    '智能助手会话': 'el-icon-chat-dot-round',
-    '智能助手消息': 'el-icon-message',
-    '测试用例评审': 'el-icon-check',
-    '评审分配': 'el-icon-guide',
-    '评审意见': 'el-icon-s-custom',
-    '评审模板': 'el-icon-document',
-    'Tokens': 'el-icon-key',
-    '组': 'el-icon-s-custom',
-    '业务需求': 'el-icon-document-checked',
-    '分析任务': 'el-icon-stopwatch',
-    '生成的测试用例': 'el-icon-document',
-    '需求文档': 'el-icon-document',
-}
-
-# 开发环境，暂时禁用迁移历史检查
-# SILENCED_SYSTEM_CHECKS = ['django.db.migrations.InconsistentMigrationHistory']
+# SimpleUI 主题配置：仅在启用 simpleui 时合并到 settings 命名空间。
+if 'simpleui' in DJANGO_APPS:
+    from .simpleui_settings import *  # noqa: F401,F403

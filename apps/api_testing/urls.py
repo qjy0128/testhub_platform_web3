@@ -1,6 +1,3 @@
-from django.urls import path, include
-from django.conf import settings
-from django.conf.urls.static import static
 from rest_framework.routers import DefaultRouter
 from .views import (
     ApiProjectViewSet, ApiCollectionViewSet, ApiRequestViewSet,
@@ -29,9 +26,6 @@ router.register(r'task-notification-settings', TaskNotificationSettingViewSet)
 router.register(r'operation-logs', OperationLogViewSet)
 router.register(r'ai-service-configs', AIServiceConfigViewSet, basename='aiserviceconfig')
 
-urlpatterns = [
-    path('api-testing/', include(router.urls)),
-]
+urlpatterns = router.urls
 
-# 添加媒体文件路由
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# 添加媒体文件路由（仅 DEBUG，由 backend.urls 兜底；这里保留为空以避免重复挂载）

@@ -387,7 +387,7 @@ class ScheduledTaskSerializer(serializers.ModelSerializer):
             notification_setting = obj.notification_settings.first()
             if notification_setting:
                 return notification_setting.get_notification_type_display()
-        except:
+        except Exception:
             pass
         return "-"
 
@@ -397,7 +397,7 @@ class ScheduledTaskSerializer(serializers.ModelSerializer):
             notification_setting = obj.notification_settings.first()
             if notification_setting:
                 return notification_setting.notification_type
-        except:
+        except Exception:
             pass
         return "email"  # 默认值
 
@@ -631,7 +631,7 @@ class NotificationLogSerializer(serializers.ModelSerializer):
                 notification_setting = obj.task.notification_settings.first()
                 if notification_setting:
                     return notification_setting.get_notification_type_display()
-            except:
+            except Exception:
                 pass
         # 回退到原始的通知类型显示
         return obj.get_notification_type_display()
@@ -739,7 +739,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
                 notification_setting = obj.task.notification_settings.first()
                 if notification_setting:
                     return notification_setting.get_notification_type_display()
-            except:
+            except Exception:
                 pass
         # 回退到原始的通知类型显示
         return obj.get_notification_type_display()
@@ -815,7 +815,7 @@ class NotificationLogDetailSerializer(serializers.ModelSerializer):
                 notification_setting = obj.task.notification_settings.first()
                 if notification_setting and notification_setting.notification_type in ['webhook', 'both']:
                     return obj.webhook_bot_info or {}
-            except:
+            except Exception:
                 pass
         return None
 

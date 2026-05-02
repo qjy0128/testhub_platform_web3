@@ -145,7 +145,12 @@ def temporary_directory():
 
 class ApiCsrfConfigurationTests(SimpleTestCase):
     def test_api_csrf_disable_middleware_is_not_installed(self):
+        # backend.middleware.DisableCSRFMiddleware 已被彻底移除；保留断言防止回滚误装。
         self.assertNotIn('backend.middleware.DisableCSRFMiddleware', settings.MIDDLEWARE)
+        self.assertFalse(
+            any('DisableCSRF' in m for m in settings.MIDDLEWARE),
+            'No CSRF-disabling middleware should be installed',
+        )
 
 
 class AppAutomationTemplatePathSafetyTests(SimpleTestCase):
@@ -627,7 +632,9 @@ class UiAutomationAuthorizationTests(SimpleTestCase):
         request.data = {'script_id': 123}
         view = ScriptElementUsageViewSet()
 
-        with patch('apps.ui_automation.views.accessible_test_scripts_for_user') as accessible:
+        # patch 实际调用点（views.scripts 模块内的本地绑定），而不是 views 包级 re-export，
+        # 否则 mock 不会生效导致真正去查 DB。
+        with patch('apps.ui_automation.views.scripts.accessible_test_scripts_for_user') as accessible:
             accessible.return_value.get.side_effect = UiTestScript.DoesNotExist
             response = view.analyze_script(request)
 
@@ -643,7 +650,7 @@ class UiAutomationAuthorizationTests(SimpleTestCase):
         project = SimpleNamespace(id=321)
         view.get_object = lambda: SimpleNamespace(project=project)
 
-        with patch('apps.ui_automation.views.accessible_test_scripts_for_user') as accessible:
+        with patch('apps.ui_automation.views.suites.accessible_test_scripts_for_user') as accessible:
             accessible.return_value.get.side_effect = UiTestScript.DoesNotExist
             response = view.add_script(request, pk=1)
 
@@ -659,7 +666,7 @@ class UiAutomationAuthorizationTests(SimpleTestCase):
         project = SimpleNamespace(id=654)
         view.get_object = lambda: SimpleNamespace(project=project)
 
-        with patch('apps.ui_automation.views.accessible_test_cases_for_user') as accessible:
+        with patch('apps.ui_automation.views.suites.accessible_test_cases_for_user') as accessible:
             accessible.return_value.get.side_effect = UiTestCase.DoesNotExist
             response = view.add_test_case(request, pk=1)
 

@@ -472,16 +472,17 @@ export default {
     },
 
     async saveConfig() {
-      console.log('Saving config with data:', this.configForm)
-      
-      // 详细检查每个字段
-      console.log('Field values:')
-      console.log('- name:', this.configForm.name, 'length:', this.configForm.name?.length)
-      console.log('- model_type:', this.configForm.model_type, 'length:', this.configForm.model_type?.length)
-      console.log('- role:', this.configForm.role, 'length:', this.configForm.role?.length)
-      console.log('- api_key:', this.configForm.api_key, 'length:', this.configForm.api_key?.length)
-      console.log('- base_url:', this.configForm.base_url, 'length:', this.configForm.base_url?.length)
-      console.log('- model_name:', this.configForm.model_name, 'length:', this.configForm.model_name?.length)
+      // 注：api_key 不能打到 console（即使开发环境也不打），避免开发者
+      // 截图分享 / 屏幕共享时泄漏。其它非敏感字段也以 length 形式打印。
+      console.debug('Saving config:', {
+        name_len: this.configForm.name?.length,
+        model_type: this.configForm.model_type,
+        role: this.configForm.role,
+        api_key_set: !!this.configForm.api_key,
+        api_key_len: this.configForm.api_key?.length,
+        base_url: this.configForm.base_url,
+        model_name: this.configForm.model_name,
+      })
       
       // 验证必填字段
       const requiredFields = [

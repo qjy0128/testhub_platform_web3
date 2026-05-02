@@ -1,14 +1,29 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 
 const normalizeModuleId = (id) => id.replace(/\\/g, '/')
 
 export default defineConfig(({ mode }) => ({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    AutoImport({
+      resolvers: [ElementPlusResolver()],
+    }),
+    Components({
+      resolvers: [ElementPlusResolver()],
+    }),
+  ],
   esbuild: {
     drop: mode === 'production' ? ['debugger'] : [],
-    pure: mode === 'production' ? ['console.log', 'console.debug'] : [],
+    // 生产构建时把所有 console.* 调用作为 pure-call 由 esbuild 摇树掉。
+    // 业务代码若需要保留生产可见的错误，请走 ``@/utils/logger`` 而不是 console.error。
+    pure: mode === 'production'
+      ? ['console.log', 'console.debug', 'console.info', 'console.warn', 'console.error']
+      : [],
   },
   resolve: {
     alias: {

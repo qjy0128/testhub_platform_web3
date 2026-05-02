@@ -1,0 +1,11 @@
+{
+  "name": "testhub-platform-root",
+  "private": true,
+  "description": "Root package only hosts git hooks (husky); the application package.json lives under frontend/.",
+  "scripts": {
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.6"
+  }
+}

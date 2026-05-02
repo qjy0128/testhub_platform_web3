@@ -74,17 +74,37 @@ const refreshReports = async () => {
 }
 
 const generateAndOpenAllureReport = async (executionId) => {
+  // 后端 202 + 异步任务：先派发，再每 1.5s 轮询状态，最多 60 次（共 90s）。
   try {
-    // 调用API生成Allure报告数据
-    const response = await api.post(`/api-testing/test-executions/${executionId}/generate-allure-report/`)
-    ElMessage.success(t('apiTesting.messages.success.reportGenerated'))
-
-    // 通过当前窗口的origin构造完整的URL，确保通过Vite代理访问
-    const fullUrl = `${window.location.origin}${response.data.report_url}`;
-    window.open(fullUrl, '_blank')
+    await api.post(`/api-testing/test-executions/${executionId}/generate-allure-report/`)
+    ElMessage.info(t('apiTesting.messages.info.reportGenerating') || '报告生成已开始…')
   } catch (error) {
     ElMessage.error(t('apiTesting.messages.error.reportGenerateFailed'))
+    return
   }
+
+  const statusUrl = `/api-testing/test-executions/${executionId}/allure-report-status/`
+  const maxAttempts = 60
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    let resp
+    try {
+      resp = await api.get(statusUrl)
+    } catch (e) {
+      continue
+    }
+    const { status, report_url, error } = resp.data
+    if (status === 'READY' && report_url) {
+      ElMessage.success(t('apiTesting.messages.success.reportGenerated'))
+      window.open(`${window.location.origin}${report_url}`, '_blank')
+      return
+    }
+    if (status === 'FAILED') {
+      ElMessage.error(error || t('apiTesting.messages.error.reportGenerateFailed'))
+      return
+    }
+  }
+  ElMessage.error(t('apiTesting.messages.error.reportTimeout') || '报告生成超时，请稍后再试')
 }
 
 const openAllureReport = () => {

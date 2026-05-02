@@ -498,7 +498,7 @@ class PlaywrightTestEngine:
                                 auto_close_msg = " + 自动关闭"
                             else:
                                 auto_close_msg = ""
-                        except:
+                        except Exception:
                             auto_close_msg = ""
                         
                         execution_time = round(time.time() - start_time, 2)
@@ -524,7 +524,7 @@ class PlaywrightTestEngine:
                                 auto_close_msg = " + 自动关闭"
                             else:
                                 auto_close_msg = ""
-                        except:
+                        except Exception:
                             auto_close_msg = ""
                         
                         execution_time = round(time.time() - start_time, 2)
@@ -557,7 +557,7 @@ class PlaywrightTestEngine:
                         try:
                             screenshot = await self.page.screenshot()
                             screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-                        except:
+                        except Exception:
                             pass
 
                         # 返回: (是否成功, 日志信息, 截图base64)
@@ -568,7 +568,7 @@ class PlaywrightTestEngine:
                     if force_action:
                         try:
                             await locator.wait_for(state='attached', timeout=timeout_ms)
-                        except:
+                        except Exception:
                             pass  # 如果已经在 DOM 中，继续
                     
                     await locator.click(timeout=timeout_ms, force=force_action)
@@ -717,7 +717,7 @@ class PlaywrightTestEngine:
             try:
                 screenshot = await self.page.screenshot()
                 screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-            except:
+            except Exception:
                 pass
 
             return False, log, screenshot_base64
@@ -734,7 +734,7 @@ class PlaywrightTestEngine:
             try:
                 screenshot = await self.page.screenshot()
                 screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-            except:
+            except Exception:
                 pass
 
             return False, log, screenshot_base64

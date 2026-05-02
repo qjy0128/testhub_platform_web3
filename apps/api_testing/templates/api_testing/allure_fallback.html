@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>测试报告 - {{ execution.test_suite.name }}</title>
+</head>
+<body>
+    <h1>测试报告</h1>
+    <p>测试套件: {{ execution.test_suite.name }}</p>
+    <p>状态: {{ execution_status_display }}</p>
+    <p>总请求数: {{ execution.total_requests }}</p>
+    <p>通过: {{ execution.passed_requests }}</p>
+    <p>失败: {{ execution.failed_requests }}</p>
+</body>
+</html>

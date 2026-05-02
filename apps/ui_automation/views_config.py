@@ -172,8 +172,7 @@ class EnvironmentConfigViewSet(viewsets.ViewSet):
         else:  # Linux
             playwright_cache_dir = os.path.expanduser('~/.cache/ms-playwright')
         
-        # 调试信息：打印缓存路径
-        print(f"Playwright cache dir: {playwright_cache_dir}")
+        logger.debug(f"Playwright cache dir: {playwright_cache_dir}")
 
         for browser in playwright_browsers_list:
             installed = False

@@ -16,7 +16,7 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     
-    path('api/auth/', include('apps.users.urls')),
+    path('api/auth/', include('apps.users.urls_auth')),
     path('api/projects/', include('apps.projects.urls')),
     path('api/testcases/', include('apps.testcases.urls')),
     path('api/testsuites/', include('apps.testsuites.urls')),
@@ -25,11 +25,11 @@ urlpatterns = [
     path('api/reviews/', include('apps.reviews.urls')),
     path('api/versions/', include('apps.versions.urls')),
     path('api/assistant/', include('apps.assistant.urls')),
-    path('api/users/', include('apps.users.urls')),
+    path('api/users/', include('apps.users.urls_users')),
     path('api/requirement-analysis/', include('apps.requirement_analysis.urls')),
     path('api/ui-automation/', include('apps.ui_automation.urls')),
     path('api/app-automation/', include('apps.app_automation.urls')),  # APP自动化测试
-    path('api/', include('apps.api_testing.urls')),
+    path('api/api-testing/', include('apps.api_testing.urls')),
     path('api/core/', include('apps.core.urls')),
     path('api/scheduler/', include('apps.scheduler.urls')),
     path('api/ai-testing/', include('apps.ai_testing.urls')),

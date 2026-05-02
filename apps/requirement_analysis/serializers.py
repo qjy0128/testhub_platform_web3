@@ -1,4 +1,9 @@
 from rest_framework import serializers
+from apps.core.upload_safety import (
+    DOCUMENT_EXTENSIONS,
+    FileSizeValidator,
+    SafeExtensionValidator,
+)
 from apps.core.url_safety import validate_outbound_http_url
 from apps.projects.models import Project
 from apps.projects.unified import user_can_access_project
@@ -100,6 +105,13 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
 
 class DocumentUploadSerializer(serializers.ModelSerializer):
     """文档上传专用序列化器"""
+    file = serializers.FileField(
+        validators=[
+            FileSizeValidator(),
+            SafeExtensionValidator(DOCUMENT_EXTENSIONS),
+        ],
+    )
+
     class Meta:
         model = RequirementDocument
         fields = ['id', 'title', 'file', 'project']

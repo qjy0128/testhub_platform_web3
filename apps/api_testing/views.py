@@ -16,12 +16,14 @@ from django.views.decorators.csrf import csrf_exempt
 from apps.core.notification_safety import redact_webhook_url, validate_notification_webhook_url
 from apps.core.url_safety import validate_outbound_http_url
 import requests
+import shutil
 import time
 import os
 import json
 import logging
 import uuid
 import subprocess
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from .models import (
@@ -188,7 +190,7 @@ class ApiProjectViewSet(viewsets.ModelViewSet):
             name='用户注册',
             description='新用户注册接口',
             method='POST',
-            url='{{base_url}}/api/users/register',
+            url='{{base_url}}/api/auth/register/',
             headers={'Content-Type': 'application/json'},
             body={
                 'type': 'json',
@@ -208,7 +210,7 @@ class ApiProjectViewSet(viewsets.ModelViewSet):
             name='用户登录',
             description='用户登录获取token',
             method='POST',
-            url='{{base_url}}/api/users/login',
+            url='{{base_url}}/api/auth/login/',
             headers={'Content-Type': 'application/json'},
             body={
                 'type': 'json',
@@ -1103,557 +1105,56 @@ class TestExecutionViewSet(viewsets.ReadOnlyModelViewSet):
             test_suite__project__in=accessible_api_projects_for_user(self.request.user)
         ).distinct()
     
+    @action(detail=True, methods=['get'], url_path='allure-report-status')
+    def allure_report_status(self, request, pk=None):
+        """查询 Allure 报告生成进度。"""
+        execution = self.get_object()
+        return Response({
+            'status': execution.report_status,
+            'status_display': execution.get_report_status_display(),
+            'error': execution.report_error,
+            'generated_at': execution.report_generated_at,
+            'report_url': (
+                f'/media/api-testing/allure-reports/execution_{execution.id}/summary.html'
+                if execution.report_status == 'READY' else None
+            ),
+        })
+
     @action(detail=True, methods=['post'], url_path='generate-allure-report')
     def generate_allure_report(self, request, pk=None):
-        """生成Allure报告数据"""
+        """触发 Allure 报告生成（异步）。
+
+        返回 202 立即应答；前端通过 ``GET .../allure-report-status/`` 轮询进度。
+        实际生成逻辑见 ``apps.api_testing.tasks.generate_allure_report_task``。
+        """
         execution = self.get_object()
-        
-        try:
-            # 创建报告目录
-            results_dir = os.path.join(settings.MEDIA_ROOT, 'api-testing', 'allure-results', f'execution_{execution.id}')
-            os.makedirs(results_dir, exist_ok=True)
-            
-            # 生成测试结果文件
-            self._generate_test_result_files(execution, results_dir)
-            
-            # 生成Allure报告
-            report_output_dir = os.path.join(settings.MEDIA_ROOT, 'api-testing', 'allure-reports', f'execution_{execution.id}')
-            os.makedirs(report_output_dir, exist_ok=True)
-            
-            # 使用Allure命令行工具生成完整报告
-            import subprocess
-            import shutil
-            import time
-            from pathlib import Path
-            
-            # 检查 Java 环境
-            java_available = self._check_java_environment()
-            if not java_available:
-                logger.warning("Java 环境未配置，将使用简单报告")
-            
-            # Allure命令行工具路径 - 使用相对路径
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            
-            # 根据操作系统确定可执行文件名
-            if os.name == 'nt':
-                allure_executable = 'allure.bat'
-            else:
-                allure_executable = 'allure'
-                
-            allure_cmd = base_dir / 'allure' / 'bin' / allure_executable
+        from .tasks import generate_allure_report_task
 
-            if not allure_cmd.exists():
-                logger.warning(f"Allure command not found at: {allure_cmd}, trying system paths")
-                # 尝试其他可能的路径
-                possible_paths = [
-                    Path('/usr/local/bin/allure'),  # 系统安装的allure
-                    Path('/usr/bin/allure'),  # 系统安装的allure
-                ]
-                allure_cmd = None
-                for path in possible_paths:
-                    if path.exists():
-                        allure_cmd = path
-                        break
-            
-            # 确保所有目录存在
-            os.makedirs(results_dir, exist_ok=True)
-            
-            if allure_cmd and java_available:
-                try:
-                    for _ in range(3):  # 重试机制
-                        try:
-                            # 如果目录已存在，先清理（处理权限问题）
-                            if os.path.exists(report_output_dir):
-                                try:
-                                    shutil.rmtree(report_output_dir)
-                                except PermissionError as pe:
-                                    logger.warning(f"无法删除目录（权限不足）：{report_output_dir}，尝试清理内容")
-                                    # 尝试只删除内容，保留目录
-                                    for item in os.listdir(report_output_dir):
-                                        item_path = os.path.join(report_output_dir, item)
-                                        try:
-                                            if os.path.isdir(item_path):
-                                                shutil.rmtree(item_path)
-                                            else:
-                                                os.remove(item_path)
-                                        except Exception:
-                                            pass  # 跳过无法删除的文件
-                            
-                            # 构建命令行参数（路径统一使用字符串格式）
-                            if os.name == 'nt':
-                                # Windows 下通过 cmd /c 执行批处理文件
-                                cmd_list = [
-                                    'cmd', '/c',
-                                    str(allure_cmd),
-                                    'generate',
-                                    str(Path(results_dir)),
-                                    '--clean',
-                                    '--output', str(Path(report_output_dir))
-                                ]
-                            else:
-                                # Linux/Mac 直接执行
-                                cmd_list = [
-                                    str(allure_cmd),
-                                    'generate',
-                                    str(Path(results_dir)),
-                                    '--clean',
-                                    '--output', str(Path(report_output_dir))
-                                ]
-                            
-                            # 生成Allure报告
-                            result = subprocess.run(
-                                cmd_list,
-                                check=True,
-                                capture_output=True,
-                                text=True,
-                                timeout=30
-                            )
-                            logger.info(f"Allure 报告生成成功: {result.stdout}")
-                            break
-                        except subprocess.TimeoutExpired:
-                            if _ == 2:  # 最后一次尝试
-                                raise
-                            logger.warning(f"Allure 命令超时，第 {_ + 1} 次重试...")
-                            time.sleep(1)
-                            continue
-                except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
-                    # 如果Allure命令失败，记录详细错误信息
-                    error_detail = str(e)
-                    if hasattr(e, 'stderr') and e.stderr:
-                        error_detail = f"{error_detail}\nStderr: {e.stderr}"
-                    logger.error(f"Allure 命令执行失败: {error_detail}")
-                    
-                    # 不再使用回退方案，直接返回错误
-                    return Response({
-                        'error': 'Allure 报告生成失败',
-                        'detail': error_detail,
-                        'suggestion': (
-                            '请检查以下项目：\n'
-                            '1. Java 是否已安装并配置（JAVA_HOME 或 java 命令可用）\n'
-                            '2. Allure 工具是否完整（项目根目录 allure/bin/ 目录）\n'
-                            '3. 目录权限是否正确\n'
-                            '4. 查看后端日志获取详细错误信息'
-                        )
-                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            else:
-                # 如果没有 Allure 工具或 Java 环境，生成简单的 HTML 报告
-                logger.warning("Allure 工具或 Java 环境不可用，生成简单报告")
-                os.makedirs(report_output_dir, exist_ok=True)
-                fallback_html = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>测试报告 - {execution.test_suite.name}</title>
-</head>
-<body>
-    <h1>测试报告</h1>
-    <p>测试套件: {execution.test_suite.name}</p>
-    <p>状态: {execution.get_status_display()}</p>
-    <p>总请求数: {execution.total_requests}</p>
-    <p>通过: {execution.passed_requests}</p>
-    <p>失败: {execution.failed_requests}</p>
-</body>
-</html>
-"""
-                with open(os.path.join(report_output_dir, 'index.html'), 'w', encoding='utf-8') as f:
-                    f.write(fallback_html)
-            
-            # 创建自定义的summary.html页面作为报告概览
-            status_class = "status-passed" if execution.status == "COMPLETED" else "status-failed"
-            index_content = f"""
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>测试报告概览 - {execution.test_suite.name}</title>
-    <style>
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f5f7fa;
-            color: #333;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 0;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        .header-content {{
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            padding: 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
-            position: relative;
-        }}
-        .header-info {{
-            flex: 1;
-            text-align: center;
-        }}
-        .header-actions {{
-            position: absolute;
-            right: 2rem;
-            bottom: 2rem;
-        }}
-        .allure-report-btn {{
-            display: inline-block;
-            padding: 0.8rem 1.5rem;
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: bold;
-            transition: all 0.3s ease;
-        }}
-        .allure-report-btn:hover {{
-            background: rgba(255, 255, 255, 0.3);
-            border-color: rgba(255, 255, 255, 0.5);
-            transform: translateY(-2px);
-            text-decoration: none;
-        }}
-        .status-row {{
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }}
-        .execution-time {{
-            color: #666;
-            font-size: 0.9rem;
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-        }}
-        .summary-card {{
-            background: white;
-            border-radius: 10px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        .summary-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 1rem;
-        }}
-        .summary-item {{
-            text-align: center;
-            padding: 1rem;
-            border-radius: 8px;
-        }}
-        .summary-item.total {{
-            background: #e3f2fd;
-        }}
-        .summary-item.passed {{
-            background: #e8f5e9;
-        }}
-        .summary-item.failed {{
-            background: #ffebee;
-        }}
-        .summary-number {{
-            font-size: 2rem;
-            font-weight: bold;
-            display: block;
-        }}
-        .summary-label {{
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }}
-        .status-badge {{
-            display: inline-block;
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-weight: bold;
-            margin-bottom: 1rem;
-        }}
-        .status-passed {{
-            background: #4caf50;
-            color: white;
-        }}
-        .status-failed {{
-            background: #f44336;
-            color: white;
-        }}
-        .test-results {{
-            background: white;
-            border-radius: 10px;
-            padding: 2rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        .test-result-item {{
-            padding: 1rem;
-            border-left: 4px solid #eee;
-            margin-bottom: 1rem;
-            border-radius: 4px;
-        }}
-        .test-result-item.passed {{
-            border-left-color: #4caf50;
-            background: #f8fff8;
-        }}
-        .test-result-item.failed {{
-            border-left-color: #f44336;
-            background: #fff8f8;
-        }}
-        .test-header {{
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin-bottom: 0.5rem;
-        }}
-        .test-name {{
-            font-weight: bold;
-            font-size: 1.1rem;
-        }}
-        .test-method {{
-            display: inline-block;
-            padding: 0.2rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.9rem;
-            margin-right: 0.5rem;
-        }}
-        .method-get {{ background: #2196f3; color: white; }}
-        .method-post {{ background: #4caf50; color: white; }}
-        .method-put {{ background: #ff9800; color: white; }}
-        .method-delete {{ background: #f44336; color: white; }}
-        .test-url {{
-            color: #666;
-            font-size: 0.9rem;
-            margin: 0.5rem 0;
-            word-break: break-all;
-        }}
-        .test-error {{
-            color: #f44336;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-            padding: 0.5rem;
-            background: #ffebee;
-            border-radius: 4px;
-        }}
-        .footer {{
-            text-align: center;
-            margin-top: 2rem;
-            padding: 1rem;
-            color: #666;
-            font-size: 0.9rem;
-        }}
-        a {{
-            color: #667eea;
-            text-decoration: none;
-        }}
-        a:hover {{
-            text-decoration: underline;
-        }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="header-content">
-            <div class="header-info">
-                <h1>接口测试报告</h1>
-                <p>测试套件: {execution.test_suite.name}</p>
-                <p>项目: {execution.test_suite.project.name}</p>
-            </div>
-            <div class="header-actions">
-                <a href="index.html" target="_blank" class="allure-report-btn">查看完整Allure报告</a>
-            </div>
-        </div>
-    </div>
-    
-    <div class="container">
-        <div class="summary-card">
-            <div class="status-row">
-                <div class="status-badge {status_class}">
-                    状态: {execution.get_status_display()}
-                </div>
-                <span class="execution-time">
-                    执行时间: {execution.created_at.strftime('%Y-%m-%d %H:%M:%S') if execution.created_at else 'N/A'}
-                </span>
-            </div>
-            
-            <div class="summary-grid">
-                <div class="summary-item total">
-                    <span class="summary-number">{execution.total_requests or 0}</span>
-                    <span class="summary-label">总请求数</span>
-                </div>
-                <div class="summary-item passed">
-                    <span class="summary-number">{execution.passed_requests or 0}</span>
-                    <span class="summary-label">通过数</span>
-                </div>
-                <div class="summary-item failed">
-                    <span class="summary-number">{execution.failed_requests or 0}</span>
-                    <span class="summary-label">失败数</span>
-                </div>
-            </div>
-        </div>
-        
-        <div class="test-results">
-            <h2>测试结果详情</h2>
-"""
-            
-            # 添加测试结果列表
-            if execution.results:
-                for i, result in enumerate(execution.results):
-                    result_class = "passed" if result.get('passed', False) else "failed"
-                    method_class = f"method-{result.get('method', 'GET').lower()}"
-                    index_content += f"""
-            <div class="test-result-item {result_class}">
-                <div class="test-header">
-                    <span class="test-method {method_class}">{result.get('method', 'GET')}</span>
-                    <span class="test-name">{result.get('name', f'测试请求 {i+1}')}</span>
-                </div>
-                <div class="test-url">{result.get('url', '')}</div>
-                <div><strong>状态:</strong> {'通过' if result.get('passed', False) else '失败'}</div>
-                {f'<div class="test-error"><strong>错误:</strong> {result.get("error", "")}</div>' if result.get('error') else ""}
-            </div>
-"""
-            
-            index_content += f"""
-        </div>
-        <div class="footer">
-            <p>报告生成时间: {execution.created_at.strftime('%Y-%m-%d %H:%M:%S') if execution.created_at else 'N/A'}</p>
-        </div>
-    </div>
-</body>
-</html>
-"""
-            # 保存为summary.html，避免覆盖Allure生成的index.html
-            summary_file = os.path.join(report_output_dir, 'summary.html')
-            with open(summary_file, 'w', encoding='utf-8') as f:
-                f.write(index_content)
-            
-            return Response({
-                'message': 'Allure报告生成成功',
-                'report_url': f'/media/api-testing/allure-reports/execution_{execution.id}/summary.html'
-            })
-        except Exception as e:
-            import traceback
-            error_detail = str(e)
-            error_traceback = traceback.format_exc()
-            logger.error(f"生成Allure报告失败: {error_detail}\n{error_traceback}")
-            return Response({
-                'error': error_detail,
-                'detail': error_traceback
-            }, status=status.HTTP_400_BAD_REQUEST)
-    
-    def _check_java_environment(self):
-        """检查 Java 运行环境是否可用"""
+        TestExecution.objects.filter(pk=execution.pk).update(
+            report_status='PENDING',
+            report_error='',
+        )
         try:
-            # 首先检查 JAVA_HOME 环境变量
-            java_home = os.environ.get('JAVA_HOME')
-            if java_home:
-                logger.info(f"检测到 JAVA_HOME: {java_home}")
-            
-            # 尝试执行 java -version 命令
-            result = subprocess.run(
-                ['java', '-version'],
-                capture_output=True,
-                text=True,
-                timeout=5
+            generate_allure_report_task.delay(execution.pk)
+        except Exception as exc:
+            logger.error('Celery 派发 Allure 任务失败：%s', exc)
+            TestExecution.objects.filter(pk=execution.pk).update(
+                report_status='FAILED',
+                report_error=f'任务派发失败: {exc}',
             )
-            
-            if result.returncode == 0:
-                # Java 可用，记录版本信息
-                java_version = result.stderr.split('\n')[0] if result.stderr else 'Unknown'
-                logger.info(f"Java 环境可用: {java_version}")
-                return True
-            else:
-                logger.warning(f"Java 命令执行失败: {result.stderr}")
-                return False
-                
-        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired) as e:
-            logger.warning(f"Java 环境检查失败: {str(e)}")
-            return False
-    
-    def _generate_test_result_files(self, execution, report_dir):
-        """生成测试结果文件"""
-        try:
-            # 检查execution.results是否存在
-            if not execution.results:
-                logger.warning(f"执行记录 {execution.id} 没有结果数据")
-                return
+            return Response(
+                {'error': '任务队列不可用，请稍后重试', 'detail': str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
-            # 生成容器文件，定义测试套件
-            container_data = {
-                "uuid": str(execution.id),
-                "name": execution.test_suite.name,
-                "children": []
-            }
-
-            # 为每个测试请求添加到children列表
-            for i, result in enumerate(execution.results):
-                container_data["children"].append(f"{execution.id}-{i}")
-
-            # 保存容器文件
-            container_file_path = os.path.join(report_dir, f'{execution.id}-container.json')
-            with open(container_file_path, 'w', encoding='utf-8') as f:
-                json.dump(container_data, f, ensure_ascii=False, indent=2)
-
-            # 只生成每个测试请求的结果文件，不生成测试套件的结果文件
-            for i, result in enumerate(execution.results):
-                request_result = {
-                    "uuid": f"{execution.id}-{i}",
-                    "name": result.get('name', f'测试请求 {i+1}'),
-                    "status": "passed" if result.get('passed', False) else "failed",
-                    "stage": "finished",
-                    "start": int(time.time() * 1000) - 1000,  # 模拟开始时间
-                    "stop": int(time.time() * 1000),  # 模拟结束时间
-                    "description": f"Method: {result.get('method', 'GET')}\nURL: {result.get('url', '')}",
-                    "historyId": f"{execution.test_suite.id}-{i}",
-                    "fullName": f"{execution.test_suite.name} / {result.get('name', f'请求 {i+1}')}",
-                    "links": [],
-                    "labels": [
-                        {"name": "suite", "value": execution.test_suite.name},
-                        {"name": "testClass", "value": execution.test_suite.name},
-                        {"name": "package", "value": "api_testing"},
-                        {"name": "project", "value": execution.test_suite.project.name}
-                    ],
-                    "parameters": [
-                        {"name": "method", "value": result.get('method', 'GET')},
-                        {"name": "url", "value": result.get('url', '')}
-                    ],
-                    "steps": [
-                        {
-                            "name": "发送请求",
-                            "status": "passed",
-                            "stage": "finished",
-                            "start": int(time.time() * 1000) - 1000,
-                            "stop": int(time.time() * 1000) - 500,
-                            "steps": []
-                        },
-                        {
-                            "name": "验证响应",
-                            "status": "passed" if result.get('passed', False) else "failed",
-                            "stage": "finished",
-                            "start": int(time.time() * 1000) - 500,
-                            "stop": int(time.time() * 1000),
-                            "steps": []
-                        }
-                    ]
-                }
-                
-                # 添加错误信息（如果有的话）
-                if result.get('error'):
-                    request_result["statusDetails"] = {
-                        "message": result.get('error'),
-                        "trace": ""
-                    }
-                
-                # 保存请求结果
-                request_file_path = os.path.join(report_dir, f'{execution.id}-{i}-result.json')
-                with open(request_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(request_result, f, ensure_ascii=False, indent=2)
-
-        except Exception as e:
-            import traceback
-            logger.error(f"生成测试结果文件失败: {str(e)}\n{traceback.format_exc()}")
-            raise
+        return Response(
+            {
+                'message': 'Allure 报告生成已开始',
+                'execution_id': execution.pk,
+                'status_url': f'/api/api-testing/test-executions/{execution.pk}/allure-report-status/',
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class UserViewSet(viewsets.ReadOnlyModelViewSet):
@@ -2107,7 +1608,7 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                     status='failed',
                     error_message=str(e)
                 )
-            except:
+            except Exception:
                 pass
 
     def _send_webhook_notification(self, task, execution_log, notification_setting, notification_config, success):
@@ -2342,7 +1843,7 @@ class ScheduledTaskViewSet(viewsets.ModelViewSet):
                             error_message=str(e),
                             sent_at=timezone.now()
                         )
-                    except:
+                    except Exception:
                         pass
 
             logger.info("=== 结束发送Webhook通知 ===")

@@ -1,7 +1,10 @@
-from django.db import models
-from django.contrib.auth import get_user_model
-from django.utils import timezone
 import json
+
+from django.contrib.auth import get_user_model
+from django.db import models
+from django.utils import timezone
+
+from apps.core.encrypted_fields import EncryptedCharField
 
 User = get_user_model()
 
@@ -215,6 +218,14 @@ class TestExecution(models.Model):
         ('CANCELLED', '已取消'),
     ]
 
+    REPORT_STATUS_CHOICES = [
+        ('IDLE', '未生成'),
+        ('PENDING', '排队中'),
+        ('GENERATING', '生成中'),
+        ('READY', '已就绪'),
+        ('FAILED', '生成失败'),
+    ]
+
     test_suite = models.ForeignKey(TestSuite, on_delete=models.CASCADE, related_name='executions',
                                    verbose_name='测试套件')
     status = models.CharField(max_length=20, choices=EXECUTION_STATUS_CHOICES, default='PENDING',
@@ -227,6 +238,16 @@ class TestExecution(models.Model):
     results = models.JSONField(default=dict, verbose_name='执行结果')
     executed_by = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name='执行者')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    # Allure 报告生成状态：由 Celery 任务异步更新
+    report_status = models.CharField(
+        max_length=20,
+        choices=REPORT_STATUS_CHOICES,
+        default='IDLE',
+        verbose_name='报告生成状态',
+    )
+    report_error = models.TextField(blank=True, default='', verbose_name='报告生成错误信息')
+    report_generated_at = models.DateTimeField(null=True, blank=True, verbose_name='报告生成完成时间')
 
     class Meta:
         db_table = 'api_test_executions'
@@ -617,7 +638,8 @@ class AIServiceConfig(models.Model):
     name = models.CharField(max_length=200, verbose_name='配置名称')
     service_type = models.CharField(max_length=20, choices=SERVICE_TYPE_CHOICES, verbose_name='服务类型')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, verbose_name='角色类型')
-    api_key = models.CharField(max_length=500, verbose_name='API Key')
+    # 加密落库；max_length 留出空间存放 Fernet token + 前缀（密文约为明文 1.5x）。
+    api_key = EncryptedCharField(max_length=2048, verbose_name='API Key')
     base_url = models.CharField(max_length=500, verbose_name='API Base URL')
     model_name = models.CharField(max_length=200, verbose_name='模型名称')
     max_tokens = models.IntegerField(default=4096, verbose_name='最大Token数')

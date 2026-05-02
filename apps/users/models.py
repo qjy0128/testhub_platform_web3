@@ -1,17 +1,31 @@
 from django.contrib.auth.models import AbstractUser
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
+
+phone_validator = RegexValidator(
+    regex=r'^\+?[\d\-\s]{6,32}$',
+    message='手机号格式无效',
+)
+
 
 class User(AbstractUser):
     """扩展用户模型"""
     avatar = models.ImageField(upload_to='avatars/', null=True, blank=True, verbose_name='头像')
-    phone = models.CharField(max_length=11, null=True, blank=True, verbose_name='手机号')
-    department = models.CharField(max_length=100, null=True, blank=True, verbose_name='部门')
+    phone = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        db_index=True,
+        validators=[phone_validator],
+        verbose_name='手机号',
+    )
+    department = models.CharField(max_length=100, null=True, blank=True, db_index=True, verbose_name='部门')
     position = models.CharField(max_length=100, null=True, blank=True, verbose_name='职位')
     is_active = models.BooleanField(default=True, verbose_name='是否激活')
     created_at = models.DateTimeField(default=timezone.now, verbose_name='创建时间')
     updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
-    
+
     class Meta:
         db_table = 'users_user'
         verbose_name = '用户'

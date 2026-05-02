@@ -1059,7 +1059,11 @@ class WalletBrowserConfig(models.Model):
     )
     remote_debugging_port = models.PositiveIntegerField(default=9222, verbose_name='远程调试端口')
     metamask_extension_id = models.CharField(max_length=64, blank=True, default='', verbose_name='MetaMask 扩展 ID')
-    force_close_existing_chrome = models.BooleanField(default=True, verbose_name='执行前关闭现有 Chrome')
+    force_close_existing_chrome = models.BooleanField(
+        default=False,
+        verbose_name='执行前关闭现有 Chrome（危险：会强杀所有 Chrome 进程）',
+        help_text='默认关闭。仅在专用测试机上可启用，否则会丢失日常 Chrome 中未保存的工作。',
+    )
     is_active = models.BooleanField(default=True, verbose_name='是否启用')
     created_by = models.ForeignKey(
         User,

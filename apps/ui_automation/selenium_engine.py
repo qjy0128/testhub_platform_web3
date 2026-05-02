@@ -354,7 +354,7 @@ class SeleniumTestEngine:
         Returns:
             (是否成功, 日志信息, 截图base64)
         """
-        print(f"\n🔵 开始执行步骤: action_type={step.action_type}")
+        logger.info(f"\n🔵 开始执行步骤: action_type={step.action_type}")
         action_type = step.action_type
         
         # 预先解析变量
@@ -561,7 +561,7 @@ class SeleniumTestEngine:
                                 log += f"  - 超时设置: {timeout_seconds}秒\n"
                                 log += f"  - 执行时间: {execution_time}秒"
                                 return True, log, None
-                            except:
+                            except Exception:
                                 if attempt < max_retries - 1:
                                     time.sleep(0.5)
                                     if 'dropdown' in by_value.lower() or 'el-select' in by_value.lower():
@@ -766,31 +766,31 @@ class SeleniumTestEngine:
             execution_time = round(time.time() - start_time, 2)
             
             # 🔍 调试：打印TimeoutException的所有属性
-            print(f"\n" + "=" * 60)
-            print(f"🔍 Selenium TimeoutException 调试信息:")
-            print(f"  type(e): {type(e)}")
-            print(f"  str(e): {repr(str(e))}")
-            print(f"  repr(e): {repr(e)}")
-            print(f"  hasattr msg: {hasattr(e, 'msg')}")
+            logger.info(f"\n" + "=" * 60)
+            logger.error(f"🔍 Selenium TimeoutException 调试信息:")
+            logger.info(f"  type(e): {type(e)}")
+            logger.info(f"  str(e): {repr(str(e))}")
+            logger.info(f"  repr(e): {repr(e)}")
+            logger.info(f"  hasattr msg: {hasattr(e, 'msg')}")
             if hasattr(e, 'msg'):
-                print(f"    e.msg = {repr(e.msg)}")
-            print(f"  hasattr args: {hasattr(e, 'args')}")
+                logger.info(f"    e.msg = {repr(e.msg)}")
+            logger.info(f"  hasattr args: {hasattr(e, 'args')}")
             if hasattr(e, 'args'):
-                print(f"    e.args = {e.args}")
-            print(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
+                logger.info(f"    e.args = {e.args}")
+            logger.info(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
             if hasattr(e, 'stacktrace'):
-                print(f"    e.stacktrace = {repr(e.stacktrace)[:200]}")
-            print(f"  hasattr screen: {hasattr(e, 'screen')}")
+                logger.info(f"    e.stacktrace = {repr(e.stacktrace)[:200]}")
+            logger.info(f"  hasattr screen: {hasattr(e, 'screen')}")
             if hasattr(e, 'screen'):
-                print(f"    e.screen = {type(e.screen)}")
-            print(f"  e.__dict__ = {e.__dict__}")
-            print(f"  dir(e) = {[attr for attr in dir(e) if not attr.startswith('_')]}")
+                logger.info(f"    e.screen = {type(e.screen)}")
+            logger.info(f"  e.__dict__ = {e.__dict__}")
+            logger.info(f"  dir(e) = {[attr for attr in dir(e) if not attr.startswith('_')]}")
             
             # 尝试获取Python的traceback信息
             import traceback
             tb_str = ''.join(traceback.format_tb(e.__traceback__))
-            print(f"  Python traceback:\n{tb_str}")
-            print(f"=" * 60 + "\n")
+            logger.info(f"  Python traceback:\n{tb_str}")
+            logger.info(f"=" * 60 + "\n")
             
             # 提取TimeoutException的完整堆栈信息（类似Playwright的显示方式）
             error_parts = []
@@ -843,7 +843,7 @@ class SeleniumTestEngine:
                         
                         error_parts.append(f"\n等待条件: {wait_condition}")
                         error_parts.append(f"\n调用堆栈:\n{tb_str}")
-            except:
+            except Exception:
                 pass
             
             # 5. 如果仍然没有有用信息，提供操作类型相关的提示
@@ -871,13 +871,13 @@ class SeleniumTestEngine:
             try:
                 screenshot = self.driver.get_screenshot_as_png()
                 screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-            except:
+            except Exception:
                 pass
 
             return False, log, screenshot_base64
 
         except Exception as e:
-            print(f"\n🚨🚨🚨 捕获到 Selenium 异常！开始调试... 🚨🚨🚨\n")
+            logger.info(f"\n🚨🚨🚨 捕获到 Selenium 异常！开始调试... 🚨🚨🚨\n")
             execution_time = round(time.time() - start_time, 2)
 
             # 提取详细的错误信息（改进版 - 添加调试日志）
@@ -885,23 +885,23 @@ class SeleniumTestEngine:
             error_msg = ""
 
             # 🔍 调试：打印异常对象的所有信息（使用 print 确保一定输出到控制台）
-            print(f"\n" + "=" * 60)
-            print(f"🔍 Selenium 异常调试信息 (selenium_engine.py):")
-            print(f"  异常类型: {error_type}")
-            print(f"  str(e): {repr(str(e))}")
-            print(f"  hasattr msg: {hasattr(e, 'msg')}")
+            logger.info(f"\n" + "=" * 60)
+            logger.info(f"🔍 Selenium 异常调试信息 (selenium_engine.py):")
+            logger.error(f"  异常类型: {error_type}")
+            logger.info(f"  str(e): {repr(str(e))}")
+            logger.info(f"  hasattr msg: {hasattr(e, 'msg')}")
             if hasattr(e, 'msg'):
-                print(f"  e.msg 值: {repr(e.msg)}")
-                print(f"  e.msg 类型: {type(e.msg)}")
-            print(f"  hasattr args: {hasattr(e, 'args')}")
+                logger.info(f"  e.msg 值: {repr(e.msg)}")
+                logger.info(f"  e.msg 类型: {type(e.msg)}")
+            logger.info(f"  hasattr args: {hasattr(e, 'args')}")
             if hasattr(e, 'args'):
-                print(f"  e.args 长度: {len(e.args)}")
-                print(f"  e.args 内容: {e.args}")
-            print(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
+                logger.info(f"  e.args 长度: {len(e.args)}")
+                logger.info(f"  e.args 内容: {e.args}")
+            logger.info(f"  hasattr stacktrace: {hasattr(e, 'stacktrace')}")
             if hasattr(e, 'stacktrace') and e.stacktrace:
-                print(f"  e.stacktrace 前200字符: {str(e.stacktrace)[:200]}")
-            print(f"  dir(e): {[attr for attr in dir(e) if not attr.startswith('_')]}")
-            print(f"=" * 60 + "\n")
+                logger.info(f"  e.stacktrace 前200字符: {str(e.stacktrace)[:200]}")
+            logger.info(f"  dir(e): {[attr for attr in dir(e) if not attr.startswith('_')]}")
+            logger.info(f"=" * 60 + "\n")
 
             # 定义无意义的错误信息列表
             meaningless_messages = ['', 'Message', 'Message:', 'Message: ', 'Message:\n']
@@ -913,26 +913,26 @@ class SeleniumTestEngine:
                     temp = str(e.msg).strip()
                     if temp not in meaningless_messages:
                         error_msg = temp
-                        print(f"✓ 从 e.msg 提取到错误: {error_msg[:100]}")
+                        logger.error(f"✓ 从 e.msg 提取到错误: {error_msg[:100]}")
 
                 # 优先级2: 从 args 获取
                 if not error_msg and hasattr(e, 'args') and len(e.args) > 0 and e.args[0]:
                     temp = str(e.args[0]).strip()
                     if temp not in meaningless_messages:
                         error_msg = temp
-                        print(f"✓ 从 e.args[0] 提取到错误: {error_msg[:100]}")
+                        logger.error(f"✓ 从 e.args[0] 提取到错误: {error_msg[:100]}")
 
                 # 优先级3: 使用 str(e)，但排除无意义的值
                 if not error_msg:
                     temp = str(e).strip()
                     if temp not in meaningless_messages:
                         error_msg = temp
-                        print(f"✓ 从 str(e) 提取到错误: {error_msg[:100]}")
+                        logger.error(f"✓ 从 str(e) 提取到错误: {error_msg[:100]}")
 
                 # 优先级4: 从 stacktrace 提取
                 if not error_msg and hasattr(e, 'stacktrace') and e.stacktrace:
                     error_msg = f"详细堆栈:\n{e.stacktrace[:300]}"
-                    print(f"✓ 从 e.stacktrace 提取到错误")
+                    logger.error(f"✓ 从 e.stacktrace 提取到错误")
 
                 # 优先级5: 从 __dict__ 提取有用信息
                 if not error_msg and hasattr(e, '__dict__'):
@@ -940,15 +940,15 @@ class SeleniumTestEngine:
                                    if v is not None and not k.startswith('_') and k not in ['msg', 'args', 'stacktrace']}
                     if useful_attrs:
                         error_msg = f"异常属性: {useful_attrs}"
-                        print(f"✓ 从 e.__dict__ 提取到错误")
+                        logger.error(f"✓ 从 e.__dict__ 提取到错误")
 
                 # 如果还是没有，使用默认信息
                 if not error_msg:
                     error_msg = f"未知错误 (异常类型: {error_type})"
-                    print(f"⚠️ 无法提取任何有用信息，使用默认错误消息")
+                    logger.error(f"⚠️ 无法提取任何有用信息，使用默认错误消息")
 
             except Exception as extract_error:
-                print(f"⚠️ 提取错误信息时出错: {extract_error}")
+                logger.error(f"⚠️ 提取错误信息时出错: {extract_error}")
                 error_msg = f"无法提取详细错误信息 (异常类型: {error_type})"
 
             # 添加异常类型前缀（如果还没有）
@@ -971,7 +971,7 @@ class SeleniumTestEngine:
             try:
                 screenshot = self.driver.get_screenshot_as_png()
                 screenshot_base64 = f"data:image/png;base64,{base64.b64encode(screenshot).decode()}"
-            except:
+            except Exception:
                 pass
 
             return False, log, screenshot_base64
@@ -999,8 +999,7 @@ class SeleniumTestEngine:
                 WebDriverWait(self.driver, 15 if is_linux else 10).until(
                     lambda driver: driver.execute_script("return document.readyState") == "complete"
                 )
-            except:
-                # 即使超时也继续执行
+            except Exception:  # 即使超时也继续执行
                 pass
 
             # 额外等待，确保动态内容加载（Vue/React等SPA应用）

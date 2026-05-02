@@ -2,15 +2,33 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+> **Note:** This is the **TestHub Web3** fork. The main addition over the upstream TestHub platform is **MetaMask wallet automation** for EVM DApp testing (`apps/ui_automation/wallet_session.py`, `apps/ui_automation/ai_base.py`).
+
 ## Project Overview
 
-TestHub is an AI-driven test management platform built with Django 4.2 (backend) + Vue 3 (frontend). It provides test case management, API testing, UI automation testing, AI-powered requirement analysis, and test case generation capabilities.
+TestHub Web3 is an AI-driven test management platform built with Django 4.2 (backend) + Vue 3 (frontend). It provides test case management, API testing, UI automation testing, AI-powered requirement analysis, test case generation capabilities, and **Web3 wallet automation (MetaMask)**.
 
 ## Common Commands
-# Activate the virtual environment(Windows)
-d:\testhub_platform\venv\Scripts\Activate.ps1
-# Activate the virtual environment(MacOS)
+
+The project targets **Python 3.12** (some dependencies are not yet 3.13/3.14 ready).
+Create the venv with the matching interpreter — name it `.venv` for new clones:
+
+```bash
+# Windows (PowerShell), Python 3.12 must be on PATH:
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux:
+python3.12 -m venv .venv
 source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+> Note: this repo currently contains a `.venv312/` (Python 3.12, working) and a
+> stale `.venv/` (Python 3.14, no deps). New clones should just use `.venv`.
+> Existing checkouts can keep using `.venv312` and may delete `.venv` after
+> pointing IDE/scripts to `.venv312`.
 
 ### Backend (Django)
 
